@@ -34,11 +34,17 @@ function App() {
       .then((session: { user?: unknown } | null) => {
         const isSignedIn = Boolean(session?.user);
         setSignedIn(isSignedIn);
-        setView(isSignedIn ? "today" : "landing");
+        setView((current) =>
+          isSignedIn
+            ? "today"
+            : current === "account"
+              ? "account"
+              : "landing",
+        );
       })
       .catch(() => {
         setSignedIn(false);
-        setView("landing");
+        setView((current) => (current === "account" ? "account" : "landing"));
       });
   }, []);
 
@@ -54,7 +60,9 @@ function App() {
         ? current === "settings"
           ? "settings"
           : "today"
-        : "landing",
+        : current === "account"
+          ? "account"
+          : "landing",
     );
   }, []);
 
