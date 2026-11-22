@@ -454,4 +454,4 @@ export const ApiErrorSchema = z.strictObject({
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 
-export * from "./health.js";
+export * from "./health.ts";
