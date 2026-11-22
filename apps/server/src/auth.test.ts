@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
 import { eq } from "drizzle-orm";
@@ -12,6 +12,7 @@ import { createAuth } from "./auth.js";
 import { readEnvironment } from "./config.js";
 import { createApp } from "./app.js";
 import { schema, user, userProfile } from "./db/schema.js";
+import { rateLimit } from "./db/auth-schema.js";
 import { createUserProfile } from "./db/user-profile.js";
 import { requireSession } from "./middleware/require-session.js";
 
@@ -124,6 +125,61 @@ describe("authentication rate limits", () => {
     });
   });
 
+  it("logs the Resend error code without exposing the provider message", async () => {
+    const emailLogger = pino({ level: "silent" });
+    const logError = vi.spyOn(emailLogger, "error");
+    const emailResend = new Resend("re_test");
+    vi.spyOn(emailResend.emails, "send").mockResolvedValue({
+      data: null,
+      error: {
+        name: "validation_error",
+        statusCode: 403,
+        message: "Sensitive provider details",
+      },
+      headers: null,
+    });
+    const emailAuth = createAuth(
+      environment,
+      database,
+      emailResend,
+      emailLogger,
+    );
+    const emailApp = createApp({
+      authHandler: toNodeHandler(emailAuth),
+      checkDatabase: async () => undefined,
+      logger: emailLogger,
+    });
+
+    await database.insert(user).values({
+      id: "email-test-user",
+      name: "Email Test",
+      email: "email-test@example.com",
+      emailVerified: false,
+      termsAccepted: true,
+      privacyAccepted: true,
+      adultConfirmed: true,
+      authorizedCaregiver: true,
+      tosAcceptedAt: new Date(),
+      tosVersion: "terms-1/privacy-1",
+    });
+
+    const response = await request(emailApp)
+      .post("/api/auth/send-verification-email")
+      .set("Origin", environment.APP_URL)
+      .send({ email: "email-test@example.com" });
+
+    expect(response.status).toBe(200);
+    await vi.waitFor(() =>
+      expect(logError).toHaveBeenCalledWith(
+        { provider: "resend", code: "validation_error", statusCode: 403 },
+        "Authentication email delivery failed; Resend rejected the request",
+      ),
+    );
+    expect(JSON.stringify(logError.mock.calls)).not.toContain(
+      "Sensitive provider details",
+    );
+  });
+
   it("limits sign-in by the IP and normalized email pair", async () => {
     const signIn = (email: string) =>
       request(app)
@@ -152,5 +208,25 @@ describe("authentication rate limits", () => {
 
     expect((await requestReset("PARENT@example.com")).status).toBe(429);
     expect((await requestReset("another@example.com")).status).not.toBe(429);
+  });
+
+  it("limits verification email requests by normalized email", async () => {
+    const requestVerification = (email: string) =>
+      request(app)
+        .post("/api/auth/send-verification-email")
+        .set("Origin", environment.APP_URL)
+        .send({ email });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await database.delete(rateLimit);
+      expect((await requestVerification("verify@example.com")).status).toBe(
+        200,
+      );
+    }
+
+    await database.delete(rateLimit);
+    expect((await requestVerification("VERIFY@example.com")).status).toBe(429);
+    await database.delete(rateLimit);
+    expect((await requestVerification("other@example.com")).status).toBe(200);
   });
 });

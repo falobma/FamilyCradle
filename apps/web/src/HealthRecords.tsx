@@ -775,11 +775,9 @@ export function HealthRecords({ children, role, onChildUpdated }: Props) {
               })}
             </p>
           )}
+          <p className="health-review-warning">{t("medicalReviewNeeded")}</p>
           {activeTab === "overview" && (
             <>
-              <p className="health-review-warning">
-                {t("medicalReviewNeeded")}
-              </p>
               <div className="health-grid">
                 <article className="health-card">
                   <h3>{t("milkTargetTitle")}</h3>
@@ -1060,9 +1058,6 @@ export function HealthRecords({ children, role, onChildUpdated }: Props) {
           {activeTab === "vaccines" && (
             <div className="health-card">
               <h3>{t("vaccineTitle")}</h3>
-              <p className="health-review-warning">
-                {t("medicalReviewNeeded")}
-              </p>
               <p>{t("vaccineDisclaimer")}</p>
               <p>
                 {t("vaccineCounts", {

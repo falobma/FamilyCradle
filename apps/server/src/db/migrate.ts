@@ -1,11 +1,11 @@
-import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
-import { readEnvironment } from "../config.js";
+import { loadEnvironmentFile, readEnvironment } from "../config.js";
 import { createDatabase } from "./client.js";
 import { schema } from "./schema.js";
 
+loadEnvironmentFile();
 const environment = readEnvironment();
 const { client } = createDatabase(environment);
 const database = drizzle(client, { schema });

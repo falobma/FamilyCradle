@@ -50,6 +50,13 @@
       "when": 1795337443476,
       "tag": "0006_closed_morph",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795346946893,
+      "tag": "0007_smart_natasha_romanoff",
+      "breakpoints": true
     }
   ]
 }

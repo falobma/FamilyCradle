@@ -1,6 +1,18 @@
 @import "tailwindcss";
 
 @theme {
+  --color-peach-100: #fff0df;
+  --color-peach-300: #f6b96f;
+  --color-peach-500: #ee9f45;
+  --color-lilac-100: #eeeafd;
+  --color-lilac-300: #c4b7ea;
+  --color-lilac-500: #9b8bd1;
+  --color-mint-100: #daf4ed;
+  --color-mint-300: #9bdcca;
+  --color-mint-500: #61bbaa;
+  --color-coral-100: #ffe4df;
+  --color-coral-300: #f5a79b;
+  --color-coral-500: #ed7d70;
   --color-cocoa-50: #fbf7f2;
   --color-cocoa-100: #f4ebe0;
   --color-cocoa-200: #e8d6c3;

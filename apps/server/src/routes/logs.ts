@@ -128,6 +128,7 @@ async function resolveMpasiFoods(
   foodNames: string[] | undefined,
   userId: string,
   nowIso: string,
+  rev: number,
 ) {
   const ids = new Set(foodIds);
   for (const rawName of foodNames ?? []) {
@@ -154,6 +155,7 @@ async function resolveMpasiFoods(
         createdAt: nowIso,
         updatedAt: nowIso,
         updatedBy: userId,
+        rev,
       })
       .onConflictDoNothing();
     const created = await tx
@@ -232,7 +234,7 @@ export function createLogRouter(db: Db) {
       const flagged = body.data.isCommonAllergen ?? allergens.has(name);
       const foodId = createUuidV7();
       await db.transaction(async (tx) => {
-        await bump(tx, target.familyId);
+        const rev = await bump(tx, target.familyId);
         await tx
           .insert(mpasiFood)
           .values({
@@ -246,6 +248,7 @@ export function createLogRouter(db: Db) {
             createdAt: now,
             updatedAt: now,
             updatedBy: userId,
+            rev,
           })
           .onConflictDoNothing();
         const [food] = await tx
@@ -303,12 +306,20 @@ export function createLogRouter(db: Db) {
       if (!current || !(await membership(db, current.familyId, userId)))
         return void err(res, 404, "NOT_FOUND", "Food not found.");
       const now = new Date().toISOString();
-      await db.transaction(async (tx) => {
-        await bump(tx, current.familyId);
-        await tx
+      const updated = await db.transaction(async (tx) => {
+        const rev = await bump(tx, current.familyId);
+        const [food] = await tx
           .update(mpasiFood)
-          .set({ ...body.data, updatedAt: now, updatedBy: userId })
-          .where(eq(mpasiFood.id, id));
+          .set({
+            ...body.data,
+            updatedAt: now,
+            updatedBy: userId,
+            version: sql`${mpasiFood.version} + 1`,
+            rev,
+          })
+          .where(eq(mpasiFood.id, id))
+          .returning();
+        if (!food) throw new Error("Food could not be updated.");
         await tx.insert(auditLog).values({
           id: createUuidV7(),
           familyId: current.familyId,
@@ -319,8 +330,9 @@ export function createLogRouter(db: Db) {
           changes: JSON.stringify(body.data),
           at: now,
         });
+        return food;
       });
-      res.json({ ...current, ...body.data, updatedAt: now });
+      res.json(updated);
     }),
   );
   router.get(
@@ -680,6 +692,7 @@ export function createLogRouter(db: Db) {
                 input.details.foodNames,
                 userId,
                 nowIso,
+                rev,
               );
               if (foods.length === 0)
                 throw new HttpError(
@@ -717,6 +730,8 @@ export function createLogRouter(db: Db) {
                     firstIntroducedAt: startedAt,
                     updatedAt: nowIso,
                     updatedBy: userId,
+                    version: sql`${mpasiFood.version} + 1`,
+                    rev,
                   })
                   .where(
                     and(
@@ -738,6 +753,8 @@ export function createLogRouter(db: Db) {
                     reactionStatus: "suspected",
                     updatedAt: nowIso,
                     updatedBy: userId,
+                    version: sql`${mpasiFood.version} + 1`,
+                    rev,
                   })
                   .where(
                     and(

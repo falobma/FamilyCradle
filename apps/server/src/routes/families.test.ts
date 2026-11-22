@@ -247,6 +247,8 @@ describe("family onboarding API", () => {
     const recentlyDeleted = await request(app)
       .get(`/api/families/${familyId}`)
       .set(asUser(parentId));
+    expect(recentlyDeleted.body.role).toBe(recentlyDeleted.body.myRole);
+    expect(["mom", "dad"]).toContain(recentlyDeleted.body.role);
     expect(recentlyDeleted.body.deletedChildren).toHaveLength(1);
     expect(recentlyDeleted.body.deletedChildren[0].id).toBe(created.body.id);
 

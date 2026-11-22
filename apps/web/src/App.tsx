@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FamilyPortal } from "./FamilyPortal";
 import "./App.css";
@@ -12,7 +12,10 @@ const languages = [
 function App() {
   const { i18n, t } = useTranslation();
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [portalOpen, setPortalOpen] = useState(false);
+  const [view, setView] = useState<"landing" | "account" | "today" | "settings">(
+    "landing",
+  );
+  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
     document.documentElement.lang =
@@ -23,6 +26,36 @@ function App() {
     const showUpdate = () => setUpdateAvailable(true);
     window.addEventListener("pwa-update-available", showUpdate);
     return () => window.removeEventListener("pwa-update-available", showUpdate);
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/auth/get-session", { credentials: "same-origin" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((session: { user?: unknown } | null) => {
+        const isSignedIn = Boolean(session?.user);
+        setSignedIn(isSignedIn);
+        setView(isSignedIn ? "today" : "landing");
+      })
+      .catch(() => {
+        setSignedIn(false);
+        setView("landing");
+      });
+  }, []);
+
+  function changeLanguage(code: "id" | "en" | "mixed") {
+    localStorage.setItem("familycradle.language", code);
+    void i18n.changeLanguage(code);
+  }
+
+  const handleSessionChange = useCallback((isSignedIn: boolean) => {
+    setSignedIn(isSignedIn);
+    setView((current) =>
+      isSignedIn
+        ? current === "settings"
+          ? "settings"
+          : "today"
+        : "landing",
+    );
   }, []);
 
   return (
@@ -53,39 +86,73 @@ function App() {
         </a>
 
         <div className="topbar-actions">
-          <span className="build-status">
-            <span className="status-dot" aria-hidden="true" />
-            {t("status")}
-          </span>
-          <button
-            className="portal-open-button"
-            onClick={() => setPortalOpen(!portalOpen)}
-            type="button"
-          >
-            {portalOpen ? t("backHome") : t("openJournal")}
-          </button>
-          <div
-            className="language-picker"
-            role="group"
-            aria-label={t("language")}
-          >
-            {languages.map(({ code, label }) => (
-              <button
-                aria-pressed={i18n.language === code}
-                className="language-option"
-                key={code}
-                onClick={() => void i18n.changeLanguage(code)}
-                type="button"
+          {signedIn && (
+            <button
+              className="today-nav-button"
+              onClick={() => setView("today")}
+              type="button"
+              aria-pressed={view === "today"}
+            >
+              {t("today")}
+            </button>
+          )}
+          <details className="topbar-menu">
+            <summary aria-label={t("language")}>
+              <span>MIX</span>
+              <span aria-hidden="true">⌄</span>
+            </summary>
+            <div className="topbar-menu-panel">
+              <div
+                className="language-picker"
+                role="group"
+                aria-label={t("language")}
               >
-                {label}
-              </button>
-            ))}
-          </div>
+                {languages.map(({ code, label }) => (
+                  <button
+                    aria-pressed={i18n.resolvedLanguage === code}
+                    className="language-option"
+                    key={code}
+                    onClick={() => changeLanguage(code)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {signedIn && (
+                <button
+                  className="topbar-settings-button"
+                  onClick={() => setView("settings")}
+                  type="button"
+                >
+                  {t("familySettings")}
+                </button>
+              )}
+            </div>
+          </details>
+          {!signedIn && (
+            <button
+              className="portal-open-button"
+              onClick={() => setView("account")}
+              type="button"
+            >
+              {t("openJournal")}
+            </button>
+          )}
         </div>
       </header>
 
-      {portalOpen ? (
-        <FamilyPortal />
+      {view === "account" || view === "today" || view === "settings" ? (
+        <FamilyPortal
+          view={
+            view === "settings"
+              ? "settings"
+              : view === "today"
+                ? "today"
+                : "account"
+          }
+          onSessionChange={handleSessionChange}
+        />
       ) : (
         <>
           <section className="hero" id="home">

@@ -82,7 +82,10 @@ export function createAuth(
       text: message.body,
     });
     if (error) {
-      throw new Error("Resend rejected the authentication email");
+      logger.error(
+        { provider: "resend", code: error.name, statusCode: error.statusCode },
+        "Authentication email delivery failed; Resend rejected the request",
+      );
     }
   }
 
@@ -304,7 +307,8 @@ export function createAuth(
 
         if (
           context.path !== "/sign-in/email" &&
-          context.path !== "/request-password-reset"
+          context.path !== "/request-password-reset" &&
+          context.path !== "/send-verification-email"
         ) {
           return;
         }
@@ -326,8 +330,12 @@ export function createAuth(
           return;
         }
 
+        const scope =
+          context.path === "/send-verification-email"
+            ? "verification-email"
+            : "password-reset";
         await enforceEmailRateLimit(
-          `password-reset:${email || ipAddress || "unknown"}`,
+          `${scope}:${email || ipAddress || "unknown"}`,
           3,
           60 * 60,
         );

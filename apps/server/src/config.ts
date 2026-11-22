@@ -1,4 +1,12 @@
+import { config as loadDotEnv } from "dotenv";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
+
+export function loadEnvironmentFile() {
+  loadDotEnv({
+    path: fileURLToPath(new URL("../../../.env", import.meta.url)),
+  });
+}
 
 const EnvironmentSchema = z
   .object({

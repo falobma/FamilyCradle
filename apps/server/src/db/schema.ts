@@ -238,6 +238,9 @@ export const mpasiFood = sqliteTable(
     updatedBy: text("updated_by")
       .notNull()
       .references(() => user.id),
+    version: integer("version").notNull().default(1),
+    rev: integer("rev").notNull().default(1),
+    deletedAt: text("deleted_at"),
   },
   (table) => [
     uniqueIndex("mpasi_food_child_name_unique").on(table.childId, table.name),

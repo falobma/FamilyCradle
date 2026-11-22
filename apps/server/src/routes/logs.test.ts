@@ -280,6 +280,52 @@ describe("log entry routes", () => {
     expect(stopped.body.durationSec).toBeGreaterThanOrEqual(0);
   });
 
+  it("shares a running timer across family members and lets the other member stop it", async () => {
+    const timer = await request(app)
+      .post(`/api/families/${familyId}/logs`)
+      .set("x-test-user", userId)
+      .send({
+        id: "019ac600-0000-7000-8000-000000000091",
+        childId,
+        type: "sleep",
+        startedAt: "2026-01-02T00:00:00.000Z",
+        details: { category: "nap" },
+      });
+    expect(timer.status).toBe(201);
+    expect(timer.body.status).toBe("running");
+
+    const visibleToCaregiver = await request(app)
+      .get(`/api/families/${familyId}/logs`)
+      .set("x-test-user", caregiverId);
+    expect(visibleToCaregiver.status).toBe(200);
+    expect(visibleToCaregiver.body.items).toContainEqual(
+      expect.objectContaining({
+        id: timer.body.id,
+        status: "running",
+        startedAt: timer.body.startedAt,
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const stopped = await request(app)
+      .post(`/api/logs/${timer.body.id}/timer/stop`)
+      .set("x-test-user", caregiverId)
+      .send({});
+    expect(stopped.status).toBe(200);
+    expect(stopped.body.status).toBe("completed");
+    expect(stopped.body.endedAt).toBeTruthy();
+    expect(stopped.body.durationSec).toBeGreaterThanOrEqual(0);
+    const elapsedSec = Math.floor(
+      (Date.parse(stopped.body.endedAt) - Date.parse(timer.body.startedAt)) /
+        1000,
+    );
+    expect(elapsedSec).toBeGreaterThanOrEqual(1);
+    expect(stopped.body.durationSec).toBeGreaterThanOrEqual(1);
+    expect(Math.abs(stopped.body.durationSec - elapsedSec)).toBeLessThanOrEqual(
+      1,
+    );
+  });
+
   it("tracks new MPASI foods and returns the three-day allergy watch", async () => {
     const firstFood = await request(app)
       .post(`/api/children/${childId}/foods`)

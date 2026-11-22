@@ -422,6 +422,7 @@ export function createFamilyRouter(database: Database) {
       response.json({
         ...access.family,
         quickBottleMl: parseQuickBottleMl(access.family.quickBottleMl),
+        role: access.member.role,
         myRole: access.member.role,
         members: members.map((member) => ({
           id: member.id,

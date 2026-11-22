@@ -49,6 +49,11 @@ const resources = {
       caregiverConsent:
         "Saya adalah orang tua atau pengasuh yang berwenang untuk anak ini.",
       verifyEmail: "Periksa email Anda untuk tautan verifikasi sebelum masuk.",
+      resendVerification: "Kirim ulang email verifikasi",
+      verificationRequested:
+        "Jika akun ini memerlukan verifikasi, email telah diminta. Periksa kotak masuk dan spam Anda.",
+      verificationRateLimited:
+        "Terlalu banyak permintaan verifikasi. Silakan coba lagi nanti.",
       loading: "Memuat...",
       requestError: "Permintaan gagal. Silakan coba lagi.",
       createFamily: "Buat keluarga",
@@ -88,7 +93,7 @@ const resources = {
       lastSide: "Sisi terakhir",
       left: "Kiri",
       right: "Kanan",
-      diaperKind: "Jenis popok",
+      diaperKind: "Popok",
       sleepCategory: "Jenis tidur",
       nap: "Tidur siang",
       night: "Tidur malam",
@@ -113,6 +118,7 @@ const resources = {
       restoreFamily: "Pulihkan keluarga",
       previousDay: "Hari sebelumnya",
       nextDay: "Hari berikutnya",
+      selectDate: "Pilih tanggal linimasa",
       bottleTotal: "Total susu botol",
       diaperCount: "Popok",
       sleepCount: "Tidur",
@@ -182,7 +188,13 @@ const resources = {
       mpasiCount: "Sesi MPASI",
       oldestFirst: "Terlama dulu",
       newestFirst: "Terbaru dulu",
-      quickBottle: "Susu cepat",
+      quickBottle: "Akses Cepat",
+      quickBottleAmount: "Susu {{amount}} ml",
+      invalidBottleShortcuts:
+        "Masukkan 1–6 jumlah dalam ml (1–400), pisahkan dengan koma.",
+      startSide: "Sisi mulai",
+      chooseLastSide: "Pilih sisi terakhir",
+      recordedSides: "Durasi sisi mengikuti sesi timer yang tercatat.",
       quickWet: "Pipis",
       quickPup: "Pup",
       quickSaved:
@@ -278,14 +290,14 @@ const resources = {
         "Berat berubah {{percent}}% dalam {{days}} hari. Yakin menyimpan?",
       growthDelta: "{{delta}} g dalam {{days}} hari · ~{{perDay}} g/hari",
       medicalReviewNeeded:
-        "Konten referensi sementara—wajib ditinjau sebelum peluncuran.",
+        "Konten referensi ini masih berupa draf dan belum diverifikasi secara medis. Tinjauan tenaga kesehatan yang berkualifikasi masih diperlukan.",
       milestoneSourceReview:
         "Draf berdasarkan halaman tonggak CDC; kecocokan dengan revisi 2022 belum diverifikasi. Terjemahan Bahasa Indonesia juga masih berupa draf.",
       milestoneCurrentAndPrevious: "Checkpoint saat ini + sebelumnya",
       vaccineDisclaimer:
-        "Jadwal berdasarkan rekomendasi IDAI 2024. Ikuti jadwal dari dokter anak Anda.",
+        "Draf jadwal ini belum diverifikasi secara medis. Ikuti jadwal dari dokter anak Anda.",
       skillLossInfo:
-        "CDC menyarankan untuk segera bertindak dan berkonsultasi jika anak kehilangan keterampilan yang pernah dikuasainya.",
+        "Informasi tentang kehilangan keterampilan ini masih berupa draf dan belum diverifikasi secara medis.",
       dtpSchedule: "Jadwal DTP",
       rotavirusProduct: "Produk rotavirus",
       addCustomVaccine: "Tambah imunisasi khusus",
@@ -366,6 +378,11 @@ const resources = {
       caregiverConsent: "I am a parent or authorized caregiver for this child.",
       verifyEmail:
         "Check your email for a verification link before signing in.",
+      resendVerification: "Resend verification email",
+      verificationRequested:
+        "If this account needs verification, an email has been requested. Check your inbox and spam folder.",
+      verificationRateLimited:
+        "Too many verification requests. Please try again later.",
       loading: "Loading...",
       requestError: "The request failed. Please try again.",
       createFamily: "Create family",
@@ -405,7 +422,7 @@ const resources = {
       lastSide: "Last side",
       left: "Left",
       right: "Right",
-      diaperKind: "Diaper type",
+      diaperKind: "Diaper",
       sleepCategory: "Sleep type",
       nap: "Nap",
       night: "Night sleep",
@@ -430,6 +447,7 @@ const resources = {
       restoreFamily: "Restore family",
       previousDay: "Previous day",
       nextDay: "Next day",
+      selectDate: "Choose timeline date",
       bottleTotal: "Bottle total",
       diaperCount: "Diapers",
       sleepCount: "Sleep",
@@ -479,7 +497,13 @@ const resources = {
       mpasiCount: "MPASI sessions",
       oldestFirst: "Oldest first",
       newestFirst: "Newest first",
-      quickBottle: "Quick bottle",
+      quickBottle: "Quick access",
+      quickBottleAmount: "Milk {{amount}} ml",
+      invalidBottleShortcuts:
+        "Enter 1–6 amounts in ml (1–400), separated by commas.",
+      startSide: "Starting side",
+      chooseLastSide: "Choose the last side",
+      recordedSides: "Side durations follow the recorded timer session.",
       quickWet: "Wet diaper",
       quickPup: "Stool diaper",
       quickSaved: "Entry saved. You can undo it for 5 seconds.",
@@ -574,14 +598,14 @@ const resources = {
         "Weight changed {{percent}}% in {{days}} days. Save this change?",
       growthDelta: "{{delta}} g in {{days}} days · ~{{perDay}} g/day",
       medicalReviewNeeded:
-        "Reference content is provisional and must be reviewed before launch.",
+        "This reference content is a draft and has not been medically verified. Review by a qualified health professional is still required.",
       milestoneSourceReview:
         "Drafted from CDC milestone pages; correspondence to the 2022 revision has not been verified. Indonesian translations are also drafts.",
       milestoneCurrentAndPrevious: "Current + previous checkpoint",
       vaccineDisclaimer:
-        "Schedule based on IDAI 2024 recommendations. Follow your pediatrician's schedule.",
+        "This draft schedule has not been medically verified. Follow your pediatrician's schedule.",
       skillLossInfo:
-        "CDC advises acting early and consulting a healthcare professional if a child loses skills they once had.",
+        "Information about loss of skills is a draft and has not been medically verified.",
       dtpSchedule: "DTP schedule",
       rotavirusProduct: "Rotavirus product",
       addCustomVaccine: "Add custom vaccine",
@@ -681,6 +705,11 @@ const resources = {
       caregiverConsent: "I am a parent or authorized caregiver for this child.",
       verifyEmail:
         "Check your email for a verification link before signing in.",
+      resendVerification: "Resend verification email",
+      verificationRequested:
+        "If this account needs verification, an email has been requested. Check your inbox and spam folder.",
+      verificationRateLimited:
+        "Too many verification requests. Please try again later.",
       loading: "Loading...",
       requestError: "The request failed. Please try again.",
       createFamily: "Create family",
@@ -720,7 +749,7 @@ const resources = {
       lastSide: "Last side",
       left: "Left",
       right: "Right",
-      diaperKind: "Diaper type",
+      diaperKind: "Diaper",
       sleepCategory: "Sleep type",
       nap: "Nap",
       night: "Night sleep",
@@ -745,6 +774,7 @@ const resources = {
       restoreFamily: "Restore family",
       previousDay: "Previous day",
       nextDay: "Next day",
+      selectDate: "Choose timeline date",
       bottleTotal: "Bottle total",
       diaperCount: "Diapers",
       sleepCount: "Sleep",
@@ -794,7 +824,13 @@ const resources = {
       mpasiCount: "MPASI sessions",
       oldestFirst: "Oldest first",
       newestFirst: "Newest first",
-      quickBottle: "Quick bottle",
+      quickBottle: "Quick access",
+      quickBottleAmount: "Milk {{amount}} ml",
+      invalidBottleShortcuts:
+        "Enter 1–6 amounts in ml (1–400), separated by commas.",
+      startSide: "Starting side",
+      chooseLastSide: "Choose the last side",
+      recordedSides: "Side durations follow the recorded timer session.",
       quickWet: "Wet diaper",
       quickPup: "Stool diaper",
       quickSaved: "Entry saved. You can undo it for 5 seconds.",
@@ -862,7 +898,7 @@ const resources = {
 
 void i18n.use(initReactI18next).init({
   resources,
-  lng: "id",
+  lng: localStorage.getItem("familycradle.language") || "id",
   fallbackLng: ["en"],
   supportedLngs: ["id", "en", "mixed"],
   interpolation: {

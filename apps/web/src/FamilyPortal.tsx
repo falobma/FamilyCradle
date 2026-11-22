@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { HealthRecords } from "./HealthRecords";
 import { Journal } from "./Journal";
 
 type User = { id: string; name: string; email: string };
@@ -24,6 +23,7 @@ type Child = {
   version: number;
 };
 type FamilyDetails = FamilySummary & {
+  myRole: "mom" | "dad" | "caregiver";
   timezone: string;
   pumpingSideMode: "combined" | "separate";
   quickBottleMl: number[];
@@ -46,6 +46,17 @@ type FamilyInvite = {
 };
 type PortalPhase =
   "loading" | "signed-out" | "families" | "new-family" | "family";
+
+class ApiRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function apiRequest<T>(
   path: string,
@@ -75,7 +86,14 @@ async function apiRequest<T>(
             typeof payload.message === "string"
           ? payload.message
           : `Request failed (${response.status}).`;
-    throw new Error(message);
+    const code =
+      typeof payload === "object" &&
+      payload !== null &&
+      "code" in payload &&
+      typeof payload.code === "string"
+        ? payload.code
+        : undefined;
+    throw new ApiRequestError(message, response.status, code);
   }
   return payload as T;
 }
@@ -218,10 +236,20 @@ function JoinFamilyPanel({
   );
 }
 
-export function FamilyPortal() {
+export function FamilyPortal({
+  view = "account",
+  onSessionChange,
+}: {
+  view?: "account" | "today" | "settings";
+  onSessionChange?: (signedIn: boolean) => void;
+}) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<PortalPhase>("loading");
   const [authMode, setAuthMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [authEmail, setAuthEmail] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(
+    null,
+  );
   const [user, setUser] = useState<User | null>(null);
   const [families, setFamilies] = useState<FamilySummary[]>([]);
   const [deletedFamilies, setDeletedFamilies] = useState<
@@ -253,7 +281,9 @@ export function FamilyPortal() {
     const details = await apiRequest<FamilyDetails>(
       `/api/families/${familyId}`,
     );
-    setFamilyDetails(details);
+    setFamilyDetails(
+      details.role ? details : { ...details, role: details.myRole },
+    );
     if (isParentRole(details.role)) {
       const activeInvites = await apiRequest<{
         items: Array<FamilyInvite & { status: string }>;
@@ -295,10 +325,12 @@ export function FamilyPortal() {
         "/api/auth/get-session",
       );
       if (!session?.user) {
+        onSessionChange?.(false);
         setPhase("signed-out");
         return;
       }
       setUser(session.user);
+      onSessionChange?.(true);
       await loadFamilies();
     } catch (requestError) {
       setError(
@@ -308,7 +340,7 @@ export function FamilyPortal() {
       );
       setPhase("signed-out");
     }
-  }, [loadFamilies, t]);
+  }, [loadFamilies, t, onSessionChange]);
 
   useEffect(() => {
     void Promise.resolve().then(initialize);
@@ -340,20 +372,36 @@ export function FamilyPortal() {
   }
 
   async function signIn(form: FormData) {
-    await apiRequest("/api/auth/sign-in/email", "POST", {
-      email: form.get("email"),
-      password: form.get("password"),
-    });
+    setVerificationEmail(null);
+    const email = String(form.get("email") ?? "").trim();
+    try {
+      await apiRequest("/api/auth/sign-in/email", "POST", {
+        email,
+        password: form.get("password"),
+      });
+    } catch (requestError) {
+      if (
+        requestError instanceof ApiRequestError &&
+        requestError.code === "EMAIL_NOT_VERIFIED"
+      ) {
+        setVerificationEmail(email);
+        setError(t("verifyEmail"));
+        return;
+      }
+      throw requestError;
+    }
     await initialize();
   }
 
   async function signUp(form: FormData) {
+    setVerificationEmail(null);
+    const email = String(form.get("email") ?? "").trim();
     const result = await apiRequest<{ user?: User }>(
       "/api/auth/sign-up/email",
       "POST",
       {
         name: form.get("name"),
-        email: form.get("email"),
+        email,
         password: form.get("password"),
         termsAccepted: true,
         privacyAccepted: true,
@@ -361,11 +409,28 @@ export function FamilyPortal() {
         authorizedCaregiver: true,
       },
     );
+    setVerificationEmail(email);
     if (result.user) {
       setNotice(t("verifyEmail"));
       setAuthMode("sign-in");
     } else {
       setNotice(t("verifyEmail"));
+    }
+  }
+
+  async function resendVerificationEmail(email: string) {
+    try {
+      await apiRequest("/api/auth/send-verification-email", "POST", { email });
+      setNotice(t("verificationRequested"));
+    } catch (requestError) {
+      if (
+        requestError instanceof ApiRequestError &&
+        requestError.status === 429
+      ) {
+        setError(t("verificationRateLimited"));
+        return;
+      }
+      throw requestError;
     }
   }
 
@@ -452,6 +517,24 @@ export function FamilyPortal() {
       name: form.get("familyName"),
       timezone: form.get("timezone"),
       pumpingSideMode: form.get("pumpingSideMode"),
+    });
+    await selectFamily(familyDetails.id);
+    setNotice(t("familySaved"));
+  }
+
+  async function updateBottleShortcuts(form: FormData) {
+    if (!familyDetails) return;
+    const values = String(form.get("quickBottleMl") ?? "").split(",");
+    if (
+      values.length < 1 ||
+      values.length > 6 ||
+      values.some((value) => !/^\d+$/.test(value.trim())) ||
+      values.some((value) => Number(value) < 1 || Number(value) > 400)
+    ) {
+      throw new Error(t("invalidBottleShortcuts"));
+    }
+    await apiRequest(`/api/families/${familyDetails.id}`, "PATCH", {
+      quickBottleMl: values.map((value) => Number(value.trim())),
     });
     await selectFamily(familyDetails.id);
     setNotice(t("familySaved"));
@@ -562,6 +645,7 @@ export function FamilyPortal() {
       setFamilies([]);
       setFamilyDetails(null);
       setPhase("signed-out");
+      onSessionChange?.(false);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -583,13 +667,7 @@ export function FamilyPortal() {
   }
 
   return (
-    <section className="portal" aria-labelledby="portal-title">
-      <div className="portal-heading">
-        <p className="eyebrow">{t("portalEyebrow")}</p>
-        <h1 id="portal-title">{t("portalTitle")}</h1>
-        <p>{t("portalIntro")}</p>
-      </div>
-
+    <section className="portal" aria-label={t("portalEyebrow")}>
       {error && (
         <p className="portal-message portal-error" role="alert">
           {error}
@@ -613,7 +691,13 @@ export function FamilyPortal() {
             <button
               aria-pressed={authMode === "sign-in"}
               className="portal-tab"
-              onClick={() => setAuthMode("sign-in")}
+              disabled={busy}
+              onClick={() => {
+                setAuthMode("sign-in");
+                setError("");
+                setNotice("");
+                setVerificationEmail(null);
+              }}
               type="button"
             >
               {t("signIn")}
@@ -621,7 +705,13 @@ export function FamilyPortal() {
             <button
               aria-pressed={authMode === "sign-up"}
               className="portal-tab"
-              onClick={() => setAuthMode("sign-up")}
+              disabled={busy}
+              onClick={() => {
+                setAuthMode("sign-up");
+                setError("");
+                setNotice("");
+                setVerificationEmail(null);
+              }}
               type="button"
             >
               {t("createAccount")}
@@ -659,7 +749,21 @@ export function FamilyPortal() {
             )}
             <label>
               {t("email")}
-              <input autoComplete="email" name="email" required type="email" />
+              <input
+                autoComplete="email"
+                name="email"
+                onChange={(event) => {
+                  setAuthEmail(event.target.value);
+                  if (verificationEmail) {
+                    setError("");
+                    setNotice("");
+                  }
+                  setVerificationEmail(null);
+                }}
+                required
+                type="email"
+                value={authEmail}
+              />
             </label>
             <label>
               {t("password")}
@@ -680,6 +784,20 @@ export function FamilyPortal() {
                   ? t("signIn")
                   : t("createAccount")}
             </button>
+            {verificationEmail && authEmail.trim() === verificationEmail && (
+              <button
+                className="portal-secondary"
+                disabled={busy}
+                onClick={() =>
+                  void runAction(() =>
+                    resendVerificationEmail(verificationEmail),
+                  )
+                }
+                type="button"
+              >
+                {busy ? t("loading") : t("resendVerification")}
+              </button>
+            )}
           </form>
         </div>
       )}
@@ -763,7 +881,20 @@ export function FamilyPortal() {
         </div>
       )}
 
-      {phase === "family" && familyDetails && (
+      {phase === "family" && familyDetails && view === "today" && (
+        <div className="portal-workspace">
+          <Journal
+            familyId={familyDetails.id}
+            children={familyDetails.children}
+            pumpingSideMode={familyDetails.pumpingSideMode}
+            quickBottleMl={familyDetails.quickBottleMl}
+            familyTimezone={familyDetails.timezone}
+            members={familyDetails.members}
+          />
+        </div>
+      )}
+
+      {phase === "family" && familyDetails && view !== "today" && (
         <div className="portal-workspace">
           <div className="portal-card portal-family-card">
             <div className="portal-family-title">
@@ -871,6 +1002,30 @@ export function FamilyPortal() {
                   </button>
                 </div>
               )}
+              <form
+                className="portal-form portal-nested-form"
+                onSubmit={(event) =>
+                  void submit(event, () =>
+                    updateBottleShortcuts(new FormData(event.currentTarget)),
+                  )
+                }
+              >
+                <label>
+                  {t("quickBottleShortcuts")}
+                  <input
+                    name="quickBottleMl"
+                    defaultValue={familyDetails.quickBottleMl.join(",")}
+                    required
+                  />
+                </label>
+                <button
+                  className="portal-primary"
+                  disabled={busy}
+                  type="submit"
+                >
+                  {t("save")}
+                </button>
+              </form>
             </div>
             <div className="portal-section">
               <div className="portal-section-title">
@@ -1201,19 +1356,6 @@ export function FamilyPortal() {
             </button>
             {user && <span className="portal-muted">{user.email}</span>}
           </div>
-          <Journal
-            familyId={familyDetails.id}
-            children={familyDetails.children}
-            pumpingSideMode={familyDetails.pumpingSideMode}
-            quickBottleMl={familyDetails.quickBottleMl}
-            familyTimezone={familyDetails.timezone}
-            members={familyDetails.members}
-          />
-          <HealthRecords
-            children={familyDetails.children}
-            role={familyDetails.role}
-            onChildUpdated={() => selectFamily(familyDetails.id)}
-          />
         </div>
       )}
 

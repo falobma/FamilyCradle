@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { estimateServerClockOffsetMs } from "@familycradle/shared";
 
@@ -25,6 +25,11 @@ type HistoryItem = {
   changes: Record<string, unknown>;
   at: string;
   actorDisplayName: string;
+};
+type SyncResponse = {
+  items: Array<{ table: string; row: { id: string; rev: number } }>;
+  rev: number;
+  hasMore: boolean;
 };
 const types = [
   "bottle",
@@ -85,7 +90,20 @@ async function api<T>(
   const requestStartedAt = Date.now();
   const response = await fetch(path, options);
   onServerDate?.(response.headers.get("Date"), requestStartedAt, Date.now());
-  if (!response.ok) throw new Error(`Request failed (${response.status}).`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const message =
+      typeof payload === "object" &&
+      payload !== null &&
+      "error" in payload &&
+      typeof payload.error === "object" &&
+      payload.error !== null &&
+      "message" in payload.error &&
+      typeof payload.error.message === "string"
+        ? payload.error.message
+        : `Request failed (${response.status}).`;
+    throw new Error(message);
+  }
   return response.status === 204
     ? (undefined as T)
     : ((await response.json()) as T);
@@ -118,6 +136,12 @@ export function Journal({
   );
   const [kind, setKind] = useState<(typeof types)[number] | null>(null);
   const [editingEntry, setEditingEntry] = useState<Entry | null>(null);
+  const [breastfeedMode, setBreastfeedMode] = useState<"manual" | "timer">(
+    "manual",
+  );
+  const [leftMinutes, setLeftMinutes] = useState("0");
+  const [rightMinutes, setRightMinutes] = useState("0");
+  const [lastSide, setLastSide] = useState("");
   const [pumpingMode, setPumpingMode] = useState<"combined" | "separate">(
     pumpingSideMode,
   );
@@ -153,6 +177,7 @@ export function Journal({
   const [selectedDate, setSelectedDate] = useState(() => localDate());
   const [selectedTypes, setSelectedTypes] = useState<string[]>([...types]);
   const [newestFirst, setNewestFirst] = useState(true);
+  const syncRevision = useRef(0);
 
   const observeServerDate = useCallback(
     (
@@ -189,19 +214,43 @@ export function Journal({
     setEntries(response.items);
     setDeletedEntries(deleted.items);
   }, [familyId, observeServerDate]);
+  const sync = useCallback(async () => {
+    let hasMore = true;
+    let changed = false;
+    try {
+      while (hasMore) {
+        const previousRevision = syncRevision.current;
+        const response = await api<SyncResponse>(
+          `/api/families/${familyId}/sync?since=${previousRevision}`,
+        );
+        syncRevision.current = Math.max(previousRevision, response.rev);
+        changed ||= response.items.length > 0;
+        if (response.hasMore && response.rev <= previousRevision) {
+          throw new Error("Family sync pagination did not advance.");
+        }
+        hasMore = response.hasMore;
+      }
+    } finally {
+      if (changed) await refresh();
+    }
+  }, [familyId, refresh]);
   useEffect(() => {
-    const initial = window.setTimeout(
-      () => void refresh().catch(() => setMessage(t("requestError"))),
-      0,
-    );
-    const timer = window.setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 5000);
+    syncRevision.current = 0;
+    const poll = () => {
+      if (!document.hidden)
+        void sync().catch(() => setMessage(t("requestError")));
+    };
+    const initial = window.setTimeout(poll, 0);
+    const timer = window.setInterval(poll, 5000);
+    window.addEventListener("focus", poll);
+    window.addEventListener("online", poll);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(timer);
+      window.removeEventListener("focus", poll);
+      window.removeEventListener("online", poll);
     };
-  }, [refresh, t]);
+  }, [sync, t]);
   useEffect(() => {
     if (!entries.some((entry) => entry.status === "running")) return;
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -223,6 +272,23 @@ export function Journal({
       : localDateTimeInput();
     setDefaultTime(nextTime);
     setTimeValue(nextTime);
+    if (type === "breastfeed") {
+      setBreastfeedMode(
+        entry &&
+          entry.details.leftSec === undefined &&
+          entry.details.rightSec === undefined
+          ? "timer"
+          : "manual",
+      );
+      setLeftMinutes(String(Number(entry?.details.leftSec ?? 0) / 60));
+      setRightMinutes(String(Number(entry?.details.rightSec ?? 0) / 60));
+      setLastSide(
+        entry?.details.lastSide === "left" ||
+          entry?.details.lastSide === "right"
+          ? entry.details.lastSide
+          : "",
+      );
+    }
     if (type === "pumping")
       setPumpingMode(
         (entry?.details.sideMode as "combined" | "separate") ?? pumpingSideMode,
@@ -263,7 +329,13 @@ export function Journal({
       return;
     }
     const form = new FormData(event.currentTarget);
-    const startedAt = new Date(String(form.get("time"))).toISOString();
+    const time = String(form.get("time") ?? "");
+    const parsedStartedAt = new Date(time);
+    if (!time || Number.isNaN(parsedStartedAt.valueOf())) {
+      setMessage(t("requestError"));
+      return;
+    }
+    const startedAt = parsedStartedAt.toISOString();
     const data = (name: string) => String(form.get(name) ?? "");
     let details: Record<string, unknown> = {};
     let amountMl: number | undefined;
@@ -278,16 +350,28 @@ export function Journal({
           : {}),
       };
     }
-    if (kind === "breastfeed") {
+    if (
+      kind === "breastfeed" &&
+      !Array.isArray(editingEntry?.details.segments)
+    ) {
       const leftSec = Number(data("leftMinutes") || 0) * 60;
       const rightSec = Number(data("rightMinutes") || 0) * 60;
-      const manual = data("mode") === "manual";
+      const manual = breastfeedMode === "manual";
+      if (manual && (leftSec + rightSec < 60 || leftSec + rightSec > 7200)) {
+        setMessage(t("invalidDuration"));
+        return;
+      }
       if (manual)
         endedAt = new Date(
           new Date(startedAt).valueOf() + (leftSec + rightSec) * 1000,
         ).toISOString();
       details = {
-        lastSide: data("lastSide"),
+        lastSide:
+          manual && (leftSec === 0 || rightSec === 0)
+            ? leftSec > 0
+              ? "left"
+              : "right"
+            : data("lastSide"),
         ...(manual ? { leftSec, rightSec } : {}),
       };
     }
@@ -397,19 +481,6 @@ export function Journal({
       const targets = kind === "pumping" ? [null] : selectedChildren;
       const baseId = uuidV7();
       const batchId = targets.length > 1 ? baseId : undefined;
-      if (kind === "bottle") {
-        const shortcuts = data("quickBottleMl")
-          .split(",")
-          .map((value) => Number(value.trim()))
-          .filter(
-            (value) => Number.isInteger(value) && value >= 1 && value <= 400,
-          )
-          .slice(0, 6);
-        if (shortcuts.length > 0)
-          await api(`/api/families/${familyId}`, "PATCH", {
-            quickBottleMl: shortcuts,
-          }).catch(() => undefined);
-      }
       const foodNames =
         kind === "mpasi"
           ? data("foods")
@@ -449,8 +520,8 @@ export function Journal({
       if (warnings.length) setMessage(warnings.join(" · "));
       setKind(null);
       await refresh();
-    } catch {
-      setMessage(t("requestError"));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : t("requestError"));
     } finally {
       setBusy(false);
     }
@@ -587,8 +658,8 @@ export function Journal({
   function detailSummary(entry: Entry) {
     const d = entry.details;
     if (entry.type === "bottle")
-      return `${entry.amountMl ?? 0} ml · ${String(d.milkType ?? "")}`;
-    if (entry.type === "breastfeed") return String(d.lastSide ?? "");
+      return `${entry.amountMl ?? 0} ml · ${d.milkType === "asip" ? "ASI" : d.milkType === "formula" ? t("formula") : d.milkType === "mixed" ? t("mixedMilk") : ""}`;
+    if (entry.type === "breastfeed") return breastfeedSummary(entry);
     if (entry.type === "diaper")
       return [d.kind, d.color].filter(Boolean).join(" · ");
     if (entry.type === "sleep")
@@ -599,6 +670,40 @@ export function Journal({
     if (entry.type === "medicine")
       return `${String(d.name ?? "")} · ${String(d.dose ?? "")} ${String(d.unit ?? "")}`;
     return "";
+  }
+  function breastfeedSummary(entry: Entry) {
+    const details = entry.details;
+    let left = typeof details.leftSec === "number" ? details.leftSec : 0;
+    let right = typeof details.rightSec === "number" ? details.rightSec : 0;
+    if (Array.isArray(details.segments)) {
+      left = 0;
+      right = 0;
+      for (const segment of details.segments) {
+        if (
+          typeof segment !== "object" ||
+          segment === null ||
+          (segment.side !== "left" && segment.side !== "right") ||
+          typeof segment.startedAt !== "string"
+        )
+          continue;
+        const start = Date.parse(segment.startedAt);
+        const end =
+          typeof segment.endedAt === "string"
+            ? Date.parse(segment.endedAt)
+            : serverNow;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+        const duration = Math.max(0, Math.floor((end - start) / 1000));
+        if (segment.side === "left") left += duration;
+        else right += duration;
+      }
+    }
+    if (left > 0 || right > 0)
+      return `${t("left")} ${formatElapsed(left)} · ${t("right")} ${formatElapsed(right)}`;
+    return details.lastSide === "left"
+      ? t("left")
+      : details.lastSide === "right"
+        ? t("right")
+        : "—";
   }
   async function duplicate(entry: Entry) {
     setBusy(true);
@@ -817,7 +922,7 @@ export function Journal({
         </div>
         <div className="journal-day-picker">
           <button
-            className="portal-inline-button"
+            className="journal-day-button"
             type="button"
             onClick={() =>
               setSelectedDate((date) => {
@@ -828,15 +933,21 @@ export function Journal({
             }
             aria-label={t("previousDay")}
           >
-            ‹
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m15 5-7 7 7 7" />
+            </svg>
           </button>
           <input
             type="date"
+            aria-label={t("selectDate")}
             value={selectedDate}
-            onChange={(event) => setSelectedDate(event.target.value)}
+            onChange={(event) => {
+              if (event.target.value) setSelectedDate(event.target.value);
+            }}
+            required
           />
           <button
-            className="portal-inline-button"
+            className="journal-day-button"
             type="button"
             onClick={() =>
               setSelectedDate((date) => {
@@ -847,7 +958,9 @@ export function Journal({
             }
             aria-label={t("nextDay")}
           >
-            ›
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
           </button>
         </div>
         {children.length > 1 && (
@@ -912,7 +1025,7 @@ export function Journal({
             onClick={() => void quickLog("bottle", ml)}
             type="button"
           >
-            {ml} ml
+            {t("quickBottleAmount", { amount: ml })}
           </button>
         ))}
         <button
@@ -964,9 +1077,7 @@ export function Journal({
         <article>
           <h3>DBF</h3>
           <strong>
-            {latestBreastfeed
-              ? `${latestBreastfeed.details.lastSide === "left" ? t("left") : t("right")}`
-              : "—"}
+            {latestBreastfeed ? breastfeedSummary(latestBreastfeed) : "—"}
           </strong>
           <span>
             {latestBreastfeed
@@ -1090,18 +1201,21 @@ export function Journal({
               ))}
             </div>
           )}
-          {editingEntry?.amountMl !== null && editingEntry && (
-            <label>
-              {t("amountMl")}
-              <input
-                name="amountMl"
-                type="number"
-                min="0"
-                max="2000"
-                defaultValue={editingEntry.amountMl ?? 0}
-              />
-            </label>
-          )}
+          {editingEntry?.amountMl !== null &&
+            editingEntry &&
+            kind !== "bottle" &&
+            kind !== "pumping" && (
+              <label>
+                {t("amountMl")}
+                <input
+                  name="amountMl"
+                  type="number"
+                  min="0"
+                  max="2000"
+                  defaultValue={editingEntry.amountMl ?? 0}
+                />
+              </label>
+            )}
           {kind === "bottle" && (
             <>
               <label>
@@ -1111,7 +1225,7 @@ export function Journal({
                   type="number"
                   min="1"
                   max="400"
-                  step="10"
+                  step="1"
                   required
                   defaultValue={editingEntry?.amountMl ?? undefined}
                 />
@@ -1136,14 +1250,6 @@ export function Journal({
                 ))}
               </div>
               <label>
-                {t("quickBottleShortcuts")}
-                <input
-                  name="quickBottleMl"
-                  defaultValue={quickBottleMl.join(",")}
-                  placeholder="60,90,120,150"
-                />
-              </label>
-              <label>
                 {t("milkType")}
                 <select
                   name="milkType"
@@ -1151,7 +1257,7 @@ export function Journal({
                     editingEntry?.details.milkType ?? "asip",
                   )}
                 >
-                  <option value="asip">ASIP</option>
+                  <option value="asip">ASI</option>
                   <option value="formula">{t("formula")}</option>
                   <option value="mixed">{t("mixedMilk")}</option>
                 </select>
@@ -1180,59 +1286,89 @@ export function Journal({
           )}
           {kind === "breastfeed" && (
             <>
-              <label>
-                {t("mode")}
-                <select
-                  name="mode"
-                  defaultValue={
-                    editingEntry?.details.leftSec !== undefined ||
-                    editingEntry?.details.rightSec !== undefined
-                      ? "manual"
-                      : "timer"
-                  }
-                >
-                  <option value="timer">{t("timer")}</option>
-                  <option value="manual">{t("manual")}</option>
-                </select>
-              </label>
-              <label>
-                {t("lastSide")}
-                <select
-                  name="lastSide"
-                  defaultValue={String(
-                    editingEntry?.details.lastSide ?? nextSide,
+              {Array.isArray(editingEntry?.details.segments) ? (
+                <p className="portal-muted">{t("recordedSides")}</p>
+              ) : (
+                <>
+                  <label>
+                    {t("mode")}
+                    <select
+                      name="mode"
+                      value={breastfeedMode}
+                      disabled={Boolean(editingEntry)}
+                      onChange={(event) =>
+                        setBreastfeedMode(
+                          event.target.value === "timer" ? "timer" : "manual",
+                        )
+                      }
+                    >
+                      <option value="manual">{t("manual")}</option>
+                      <option value="timer">{t("timer")}</option>
+                    </select>
+                  </label>
+                  {breastfeedMode === "manual" ? (
+                    <>
+                      <div className="portal-form-row">
+                        <label>
+                          {t("leftMinutes")}
+                          <input
+                            name="leftMinutes"
+                            type="number"
+                            min="0"
+                            max="120"
+                            step="1"
+                            value={leftMinutes}
+                            onChange={(event) =>
+                              setLeftMinutes(event.target.value)
+                            }
+                            required
+                          />
+                        </label>
+                        <label>
+                          {t("rightMinutes")}
+                          <input
+                            name="rightMinutes"
+                            type="number"
+                            min="0"
+                            max="120"
+                            step="1"
+                            value={rightMinutes}
+                            onChange={(event) =>
+                              setRightMinutes(event.target.value)
+                            }
+                            required
+                          />
+                        </label>
+                      </div>
+                      {Number(leftMinutes) > 0 && Number(rightMinutes) > 0 && (
+                        <label>
+                          {t("lastSide")}
+                          <select
+                            name="lastSide"
+                            value={lastSide}
+                            onChange={(event) =>
+                              setLastSide(event.target.value)
+                            }
+                            required
+                          >
+                            <option value="">{t("chooseLastSide")}</option>
+                            <option value="left">{t("left")}</option>
+                            <option value="right">{t("right")}</option>
+                          </select>
+                        </label>
+                      )}
+                    </>
+                  ) : (
+                    <label>
+                      {t("startSide")}
+                      <select name="lastSide" defaultValue={nextSide}>
+                        <option value="left">{t("left")}</option>
+                        <option value="right">{t("right")}</option>
+                      </select>
+                    </label>
                   )}
-                >
-                  <option value="left">{t("left")}</option>
-                  <option value="right">{t("right")}</option>
-                </select>
-              </label>
-              <div className="portal-form-row">
-                <label>
-                  {t("leftMinutes")}
-                  <input
-                    name="leftMinutes"
-                    type="number"
-                    min="0"
-                    max="120"
-                    defaultValue={
-                      Number(editingEntry?.details.leftSec ?? 0) / 60
-                    }
-                  />
-                </label>
-                <label>
-                  {t("rightMinutes")}
-                  <input
-                    name="rightMinutes"
-                    type="number"
-                    min="0"
-                    max="120"
-                    defaultValue={
-                      Number(editingEntry?.details.rightSec ?? 0) / 60
-                    }
-                  />
-                </label>
-              </div>
+                </>
+              )}
             </>
           )}
           {kind === "diaper" && (
