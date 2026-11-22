@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1795320611816,
+      "tag": "0000_magical_tony_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1795320746343,
+      "tag": "0001_brave_quasimodo",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795320930475,
+      "tag": "0002_lying_the_leader",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1795322000689,
+      "tag": "0003_fixed_starhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795328125466,
+      "tag": "0004_tearful_blizzard",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795328179095,
+      "tag": "0005_salty_liz_osborn",
+      "breakpoints": true
+    }
+  ]
+}

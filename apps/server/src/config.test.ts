@@ -35,4 +35,20 @@ describe("server environment", () => {
       }),
     ).toThrow("Must match APP_URL");
   });
+
+  it("requires trusted proxy ranges in production", () => {
+    expect(() =>
+      readEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+      }),
+    ).toThrow("At least one trusted proxy");
+    expect(
+      readEnvironment({
+        ...validEnvironment,
+        NODE_ENV: "production",
+        TRUSTED_PROXIES: "192.0.2.0/24",
+      }).TRUSTED_PROXIES,
+    ).toBe("192.0.2.0/24");
+  });
 });

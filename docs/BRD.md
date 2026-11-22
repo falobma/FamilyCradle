@@ -263,6 +263,7 @@ familycradle/
 | `TURSO_AUTH_TOKEN` | yes | Turso DB token (per environment) |
 | `BETTER_AUTH_SECRET` | yes | ≥ 32 random bytes |
 | `BETTER_AUTH_URL` | yes | Same as `APP_URL` |
+| `TRUSTED_PROXIES` | production | Comma-separated trusted proxy IPs/CIDRs for safe client-IP rate limiting |
 | `RESEND_API_KEY` | yes | Resend key |
 | `EMAIL_FROM` | yes | e.g. `FamilyCradle <no-reply@familycradle.id>` (domain must be verified in Resend) |
 | `GEMINI_API_KEY` | Phase 2 | Server only |
@@ -346,7 +347,7 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 | ID | Requirement |
 |---|---|
 | PRV-01 | Sign-up requires accepting Terms of Service and Privacy Policy (checkbox, stored with timestamp and policy version). The user confirms they are 18 or older and a parent/guardian or authorized caregiver. |
-| PRV-02 | Privacy Policy (ID and EN) explains: data collected, purpose, storage location (Turso region, Cloud Run region), processors (Google Cloud, Turso, Resend, Google Gemini), retention, deletion, and contact. Product owner provides final legal text; agent creates placeholder pages at `/privacy` and `/terms`. |
+| PRV-02 | Privacy Policy (ID and EN) explains: data collected, purpose, storage location (Turso region, Cloud Run region), processors (Google Cloud, Turso, Resend, Google Gemini, Have I Been Pwned password-check API), retention, deletion, and contact. The password-check API receives only the first five characters of a SHA-1 password hash, never the password itself. Product owner provides final legal text; agent creates placeholder pages at `/privacy` and `/terms`. |
 | PRV-03 | **AI consent (Phase 2):** AI features are off until a parent enables "Izinkan analisis AI" for the family. The consent dialog explains what is sent to Gemini. Consent is stored (who, when) and can be withdrawn anytime; withdrawal stops all AI calls immediately. |
 | PRV-04 | **Data minimization for AI:** never send names, emails, notes free-text, or user identities to Gemini. Send only age (days, corrected age), sex, and aggregated/structured measurements (Section 12.4). |
 | PRV-05 | **Account deletion:** user can delete their account from Settings (password re-entry required). Their memberships are removed; entries they created remain in the family but `created_by` shows "Mantan anggota / Former member". If they are the last parent of a family, they must delete that family first (UI guides them). |

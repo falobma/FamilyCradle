@@ -14,7 +14,10 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "auth:schema": "auth generate --config apps/server/auth.schema.config.ts --adapter drizzle --dialect sqlite --output apps/server/src/db/auth-schema.ts --yes",
+    "db:generate": "drizzle-kit generate --config apps/server/drizzle.config.ts",
+    "db:migrate": "tsx apps/server/src/db/migrate.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -23,6 +26,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.5.0",
     "prettier": "^3.6.2",
+    "auth": "^1.7.27",
     "typescript-eslint": "^8.73.0"
   }
 }

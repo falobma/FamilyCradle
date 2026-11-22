@@ -9,6 +9,7 @@ const EnvironmentSchema = z
     APP_URL: z.url(),
     BETTER_AUTH_URL: z.url(),
     BETTER_AUTH_SECRET: z.string().min(32),
+    TRUSTED_PROXIES: z.string().default(""),
     TURSO_DATABASE_URL: z.url(),
     TURSO_AUTH_TOKEN: z.string().min(1),
     RESEND_API_KEY: z.string().min(1),
@@ -24,6 +25,16 @@ const EnvironmentSchema = z
     {
       path: ["BETTER_AUTH_URL"],
       message: "Must match APP_URL for same-origin authentication.",
+    },
+  )
+  .refine(
+    (environment) =>
+      environment.NODE_ENV !== "production" ||
+      environment.TRUSTED_PROXIES.split(",").some((proxy) => proxy.trim()),
+    {
+      path: ["TRUSTED_PROXIES"],
+      message:
+        "At least one trusted proxy IP or CIDR is required in production.",
     },
   );
 

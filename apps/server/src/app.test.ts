@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { RequestHandler } from "express";
 import pino from "pino";
 import request from "supertest";
 import { createApp } from "./app.js";
@@ -6,6 +7,26 @@ import { createApp } from "./app.js";
 const logger = pino({ level: "silent" });
 
 describe("health endpoints", () => {
+  it("mounts Better Auth before JSON body parsing", async () => {
+    const authHandler: RequestHandler = (request, response) => {
+      expect(request.body).toBeUndefined();
+      response.status(200).json({ status: "auth" });
+    };
+
+    const response = await request(
+      createApp({
+        authHandler,
+        checkDatabase: async () => undefined,
+        logger,
+      }),
+    )
+      .post("/api/auth/sign-up/email")
+      .send({ email: "parent@example.com" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "auth" });
+  });
+
   it("reports liveness without checking the database", async () => {
     const checkDatabase = vi.fn<() => Promise<void>>();
     const response = await request(createApp({ checkDatabase, logger })).get(
@@ -52,5 +73,22 @@ describe("health endpoints", () => {
 
     expect(response.status).toBe(503);
     expect(response.body).toEqual({ status: "not_ready" });
+  });
+
+  it("returns a structured validation error for malformed JSON", async () => {
+    const response = await request(
+      createApp({ checkDatabase: async () => undefined, logger }),
+    )
+      .post("/api/example")
+      .set("Content-Type", "application/json")
+      .send('{"broken":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Request body must be valid JSON.",
+      },
+    });
   });
 });
