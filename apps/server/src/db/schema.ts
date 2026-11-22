@@ -361,19 +361,216 @@ export const child = sqliteTable(
   ],
 );
 
+export const vaccineDefinition = sqliteTable("vaccine_definition", {
+  id: text("id").primaryKey(),
+  scheduleVersion: text("schedule_version").notNull(),
+  vaccineCode: text("vaccine_code").notNull(),
+  doseLabelId: text("dose_label_id").notNull(),
+  doseLabelEn: text("dose_label_en").notNull(),
+  dueOffset: text("due_offset").notNull(),
+  windowEndOffset: text("window_end_offset").notNull(),
+  category: text("category", {
+    enum: ["core", "annual", "optional_endemic"],
+  }).notNull(),
+  optionGroup: text("option_group"),
+  optionValue: text("option_value"),
+  notesId: text("notes_id"),
+  notesEn: text("notes_en"),
+  comboHintId: text("combo_hint_id"),
+  comboHintEn: text("combo_hint_en"),
+});
+
+export const milestoneDefinition = sqliteTable("milestone_definition", {
+  id: text("id").primaryKey(),
+  ageMonths: integer("age_months").notNull(),
+  domain: text("domain", {
+    enum: [
+      "social_emotional",
+      "language_communication",
+      "cognitive",
+      "movement_physical",
+    ],
+  }).notNull(),
+  textId: text("text_id").notNull(),
+  textEn: text("text_en").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+  source: text("source").notNull(),
+  sourceUrl: text("source_url").notNull(),
+});
+
+export const growthMeasurement = sqliteTable(
+  "growth_measurement",
+  {
+    id: text("id").primaryKey(),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => family.id, { onDelete: "cascade" }),
+    childId: text("child_id")
+      .notNull()
+      .references(() => child.id, { onDelete: "cascade" }),
+    measuredAt: text("measured_at").notNull(),
+    weightG: integer("weight_g"),
+    lengthMm: integer("length_mm"),
+    headCircMm: integer("head_circ_mm"),
+    place: text("place", {
+      enum: ["home", "posyandu", "clinic_doctor", "hospital", "other"],
+    }),
+    note: text("note"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => user.id),
+    version: integer("version").notNull().default(1),
+    rev: integer("rev").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (table) => [
+    index("growth_measurement_child_date_idx").on(
+      table.childId,
+      table.measuredAt,
+    ),
+    index("growth_measurement_family_rev_idx").on(table.familyId, table.rev),
+  ],
+);
+
+export const childVaccine = sqliteTable(
+  "child_vaccine",
+  {
+    id: text("id").primaryKey(),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => family.id, { onDelete: "cascade" }),
+    childId: text("child_id")
+      .notNull()
+      .references(() => child.id, { onDelete: "cascade" }),
+    definitionId: text("definition_id").references(() => vaccineDefinition.id, {
+      onDelete: "set null",
+    }),
+    vaccineCode: text("vaccine_code").notNull(),
+    customName: text("custom_name"),
+    doseLabelId: text("dose_label_id").notNull(),
+    doseLabelEn: text("dose_label_en").notNull(),
+    category: text("category", {
+      enum: ["core", "annual", "optional_endemic", "custom"],
+    }).notNull(),
+    dueDate: text("due_date").notNull(),
+    windowEndDate: text("window_end_date").notNull(),
+    givenDate: text("given_date"),
+    givenPlace: text("given_place"),
+    batchNumber: text("batch_number"),
+    note: text("note"),
+    statusOverride: text("status_override", { enum: ["skipped"] }),
+    isCustom: integer("is_custom", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    followOptional: integer("follow_optional", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => user.id),
+    version: integer("version").notNull().default(1),
+    rev: integer("rev").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (table) => [
+    uniqueIndex("child_vaccine_child_definition_unique").on(
+      table.childId,
+      table.definitionId,
+    ),
+    index("child_vaccine_child_due_idx").on(table.childId, table.dueDate),
+    index("child_vaccine_family_rev_idx").on(table.familyId, table.rev),
+  ],
+);
+
+export const childVaccineOption = sqliteTable(
+  "child_vaccine_option",
+  {
+    childId: text("child_id")
+      .notNull()
+      .references(() => child.id, { onDelete: "cascade" }),
+    optionGroup: text("option_group", {
+      enum: ["DTP_SCHEDULE", "ROTA_PRODUCT"],
+    }).notNull(),
+    optionValue: text("option_value").notNull(),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => user.id),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("child_vaccine_option_child_group_unique").on(
+      table.childId,
+      table.optionGroup,
+    ),
+  ],
+);
+
+export const childMilestone = sqliteTable(
+  "child_milestone",
+  {
+    id: text("id").primaryKey(),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => family.id, { onDelete: "cascade" }),
+    childId: text("child_id")
+      .notNull()
+      .references(() => child.id, { onDelete: "cascade" }),
+    definitionId: text("definition_id")
+      .notNull()
+      .references(() => milestoneDefinition.id, { onDelete: "cascade" }),
+    achieved: integer("achieved", { mode: "boolean" }).notNull().default(false),
+    achievedOn: text("achieved_on"),
+    note: text("note"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => user.id),
+    version: integer("version").notNull().default(1),
+    rev: integer("rev").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (table) => [
+    uniqueIndex("child_milestone_child_definition_unique").on(
+      table.childId,
+      table.definitionId,
+    ),
+    index("child_milestone_family_rev_idx").on(table.familyId, table.rev),
+  ],
+);
+
 export const schema = {
   ...familyAuthSchema,
   sessionRelations,
   authEmailRateLimit,
   child,
+  childMilestone,
+  childVaccine,
+  childVaccineOption,
   family,
   familyInvite,
   familyMember,
   familyRevCounter,
+  growthMeasurement,
   inviteRateLimit,
   logEntry,
+  milestoneDefinition,
   auditLog,
   mpasiFood,
+  vaccineDefinition,
   userProfile,
   userRelations,
 };

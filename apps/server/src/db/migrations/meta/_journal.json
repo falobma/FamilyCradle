@@ -43,6 +43,13 @@
       "when": 1795328179095,
       "tag": "0005_salty_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795337443476,
+      "tag": "0006_closed_morph",
+      "breakpoints": true
     }
   ]
 }

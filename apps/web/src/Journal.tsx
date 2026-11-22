@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { estimateServerClockOffsetMs } from "@familycradle/shared";
 
 type Child = { id: string; name: string; dateOfBirth: string };
 type Entry = {
@@ -70,13 +71,20 @@ async function api<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  onServerDate?: (
+    dateHeader: string | null,
+    requestStartedAt: number,
+    responseReceivedAt: number,
+  ) => void,
 ): Promise<T> {
   const options: RequestInit = { method, credentials: "same-origin" };
   if (body !== undefined) {
     options.headers = { "content-type": "application/json" };
     options.body = JSON.stringify(body);
   }
+  const requestStartedAt = Date.now();
   const response = await fetch(path, options);
+  onServerDate?.(response.headers.get("Date"), requestStartedAt, Date.now());
   if (!response.ok) throw new Error(`Request failed (${response.status}).`);
   return response.status === 204
     ? (undefined as T)
@@ -123,6 +131,7 @@ export function Journal({
   const [message, setMessage] = useState("");
   const [recentlyDeleted, setRecentlyDeleted] = useState<Entry | null>(null);
   const [clock, setClock] = useState(() => Date.now());
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [history, setHistory] = useState<{
     id: string;
     items: HistoryItem[];
@@ -140,18 +149,46 @@ export function Journal({
     }>
   >([]);
   const [selectedFoodIds, setSelectedFoodIds] = useState<string[]>([]);
+  const [diaperColor, setDiaperColor] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => localDate());
   const [selectedTypes, setSelectedTypes] = useState<string[]>([...types]);
   const [newestFirst, setNewestFirst] = useState(true);
 
+  const observeServerDate = useCallback(
+    (
+      dateHeader: string | null,
+      requestStartedAt: number,
+      responseReceivedAt: number,
+    ) => {
+      const offset = estimateServerClockOffsetMs(
+        dateHeader,
+        requestStartedAt,
+        responseReceivedAt,
+      );
+      if (offset !== null) setServerOffsetMs(offset);
+    },
+    [],
+  );
+  const serverNow = clock + serverOffsetMs;
+
   const refresh = useCallback(async () => {
     const [response, deleted] = await Promise.all([
-      api<{ items: Entry[] }>(`/api/families/${familyId}/logs`),
-      api<{ items: Entry[] }>(`/api/families/${familyId}/logs/deleted`),
+      api<{ items: Entry[] }>(
+        `/api/families/${familyId}/logs`,
+        "GET",
+        undefined,
+        observeServerDate,
+      ),
+      api<{ items: Entry[] }>(
+        `/api/families/${familyId}/logs/deleted`,
+        "GET",
+        undefined,
+        observeServerDate,
+      ),
     ]);
     setEntries(response.items);
     setDeletedEntries(deleted.items);
-  }, [familyId]);
+  }, [familyId, observeServerDate]);
   useEffect(() => {
     const initial = window.setTimeout(
       () => void refresh().catch(() => setMessage(t("requestError"))),
@@ -180,6 +217,7 @@ export function Journal({
         ? ((entry.details.foodIds as string[] | undefined) ?? [])
         : [],
     );
+    setDiaperColor(String(entry?.details.color ?? ""));
     const nextTime = entry
       ? localDateTimeInput(new Date(entry.startedAt))
       : localDateTimeInput();
@@ -198,6 +236,23 @@ export function Journal({
           .then((result) => setFoodCatalog(result.items))
           .catch(() => setFoodCatalog([]));
     }
+  }
+
+  function needsDiaperColorWarning() {
+    if (diaperColor === "merah" || diaperColor === "pucat_putih") return true;
+    if (diaperColor !== "hitam") return false;
+    const date = timeValue.slice(0, 10);
+    const childIds = editingEntry?.childId
+      ? [editingEntry.childId]
+      : selectedChildren;
+    return children.some((child) => {
+      if (!childIds.includes(child.id)) return false;
+      const ageDays =
+        (Date.parse(`${date}T00:00:00Z`) -
+          Date.parse(`${child.dateOfBirth}T00:00:00Z`)) /
+        86_400_000;
+      return ageDays >= 4;
+    });
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -460,7 +515,9 @@ export function Journal({
           Math.max(
             0,
             Math.floor(
-              ((segment.endedAt ? new Date(segment.endedAt).valueOf() : clock) -
+              ((segment.endedAt
+                ? new Date(segment.endedAt).valueOf()
+                : serverNow) -
                 new Date(segment.startedAt).valueOf()) /
                 1000,
             ),
@@ -470,7 +527,7 @@ export function Journal({
     }
     const wall = Math.max(
       0,
-      Math.floor((clock - new Date(entry.startedAt).valueOf()) / 1000),
+      Math.floor((serverNow - new Date(entry.startedAt).valueOf()) / 1000),
     );
     const pauses = Array.isArray(entry.details.pauses)
       ? (entry.details.pauses as Array<{ startedAt: string; endedAt?: string }>)
@@ -484,7 +541,9 @@ export function Journal({
             Math.max(
               0,
               Math.floor(
-                ((pause.endedAt ? new Date(pause.endedAt).valueOf() : clock) -
+                ((pause.endedAt
+                  ? new Date(pause.endedAt).valueOf()
+                  : serverNow) -
                   new Date(pause.startedAt).valueOf()) /
                   1000,
               ),
@@ -506,7 +565,7 @@ export function Journal({
     const start = Math.max(dayStart, new Date(entry.startedAt).valueOf());
     const end = Math.min(
       dayEndDate.valueOf(),
-      entry.endedAt ? new Date(entry.endedAt).valueOf() : clock,
+      entry.endedAt ? new Date(entry.endedAt).valueOf() : serverNow,
     );
     const sleepWall = Math.max(0, Math.floor((end - start) / 1000));
     const pauses = Array.isArray(entry.details.pauses)
@@ -519,7 +578,7 @@ export function Journal({
       );
       const pauseEnd = Math.min(
         dayEndDate.valueOf(),
-        pause.endedAt ? new Date(pause.endedAt).valueOf() : clock,
+        pause.endedAt ? new Date(pause.endedAt).valueOf() : serverNow,
       );
       return sum + Math.max(0, Math.floor((pauseEnd - pauseStart) / 1000));
     }, 0);
@@ -650,7 +709,9 @@ export function Journal({
     const nextDay = new Date(dayStart);
     nextDay.setDate(nextDay.getDate() + 1);
     const startedAt = new Date(entry.startedAt);
-    const endedAt = entry.endedAt ? new Date(entry.endedAt) : new Date(clock);
+    const endedAt = entry.endedAt
+      ? new Date(entry.endedAt)
+      : new Date(serverNow);
     const overlaps =
       entry.type === "sleep"
         ? startedAt < nextDay && endedAt > dayStart
@@ -1221,7 +1282,10 @@ export function Journal({
                 {t("color")}
                 <select
                   name="color"
-                  defaultValue={String(editingEntry?.details.color ?? "")}
+                  onChange={(event) =>
+                    setDiaperColor(event.currentTarget.value)
+                  }
+                  value={diaperColor}
                 >
                   <option value="">—</option>
                   {[
@@ -1237,6 +1301,11 @@ export function Journal({
                   ))}
                 </select>
               </label>
+              {needsDiaperColorWarning() && (
+                <p className="portal-message portal-error" role="note">
+                  {t("diaperColorWarning")}
+                </p>
+              )}
               <label>
                 <input
                   type="checkbox"

@@ -10,6 +10,7 @@ import { createDatabase } from "./db/client.js";
 import { requireSession } from "./middleware/require-session.js";
 import { createFamilyRouter } from "./routes/families.js";
 import { createLogRouter } from "./routes/logs.js";
+import { createHealthRouter } from "./routes/health.js";
 
 const environment = readEnvironment();
 const logger = pino({ level: environment.LOG_LEVEL });
@@ -23,6 +24,7 @@ const auth = createAuth(
 const apiRouter = Router();
 apiRouter.use(createFamilyRouter(database.db));
 apiRouter.use(createLogRouter(database.db));
+apiRouter.use(createHealthRouter(database.db));
 const app = createApp({
   apiAuthMiddleware: requireSession(auth),
   apiRouter,

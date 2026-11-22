@@ -35,6 +35,7 @@ describe("health endpoints", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: "ok" });
+    expect(Number.isFinite(Date.parse(response.headers.date ?? ""))).toBe(true);
     expect(checkDatabase).not.toHaveBeenCalled();
   });
 

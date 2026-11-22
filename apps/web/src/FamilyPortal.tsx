@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { HealthRecords } from "./HealthRecords";
 import { Journal } from "./Journal";
 
 type User = { id: string; name: string; email: string };
@@ -15,6 +16,11 @@ type Child = {
   sex: "male" | "female";
   dateOfBirth: string;
   birthWeightG: number;
+  birthLengthMm: number | null;
+  birthHeadCircMm: number | null;
+  feedingMode: "breastmilk" | "formula" | "mixed";
+  milkTargetMode: "auto" | "manual";
+  milkTargetManualMl: number | null;
   version: number;
 };
 type FamilyDetails = FamilySummary & {
@@ -1202,6 +1208,11 @@ export function FamilyPortal() {
             quickBottleMl={familyDetails.quickBottleMl}
             familyTimezone={familyDetails.timezone}
             members={familyDetails.members}
+          />
+          <HealthRecords
+            children={familyDetails.children}
+            role={familyDetails.role}
+            onChildUpdated={() => selectFamily(familyDetails.id)}
           />
         </div>
       )}

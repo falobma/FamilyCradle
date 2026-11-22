@@ -26,6 +26,8 @@ import {
   userProfile,
 } from "../db/schema.js";
 import { createUuidV7 } from "../ids.js";
+import { createChildHealthRecords } from "../health/schedule.js";
+import { ensureHealthDefinitions } from "../health/definitions.js";
 
 type Database = ReturnType<typeof createDatabase>["db"];
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -1255,6 +1257,7 @@ export function createFamilyRouter(database: Database) {
         sendError(response, 409, "CONFLICT", "Child limit reached.");
         return;
       }
+      await ensureHealthDefinitions(database);
       const now = new Date().toISOString();
       const id = createUuidV7();
       const created = await database.transaction(async (transaction) => {
@@ -1272,6 +1275,8 @@ export function createFamilyRouter(database: Database) {
             rev,
           })
           .returning();
+        if (!row) throw new Error("Child could not be created.");
+        await createChildHealthRecords(transaction, row, userId, now, rev);
         return row;
       });
       response.status(201).json(created);

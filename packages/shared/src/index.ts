@@ -18,6 +18,29 @@ export const LogEntryTypeSchema = z.enum([
 export type LogEntryType = z.infer<typeof LogEntryTypeSchema>;
 export const UuidSchema = z.uuid();
 
+const HTTP_DATE_PRECISION_MS = 1000;
+
+export function estimateServerClockOffsetMs(
+  dateHeader: string | null,
+  requestStartedAt: number,
+  responseReceivedAt: number,
+): number | null {
+  if (
+    dateHeader === null ||
+    !Number.isFinite(requestStartedAt) ||
+    !Number.isFinite(responseReceivedAt) ||
+    responseReceivedAt < requestStartedAt
+  ) {
+    return null;
+  }
+  const serverTimestamp = Date.parse(dateHeader);
+  if (!Number.isFinite(serverTimestamp)) return null;
+
+  const roundTripMs = responseReceivedAt - requestStartedAt;
+  const clientMidpoint = requestStartedAt + roundTripMs / 2;
+  return serverTimestamp + HTTP_DATE_PRECISION_MS / 2 - clientMidpoint;
+}
+
 const IsoDateTimeSchema = z.string().datetime({ offset: true });
 const NoteSchema = z.string().trim().max(500).nullable().optional();
 export const LogEntryDetailsSchemas = {
@@ -356,7 +379,7 @@ const ChildProfileFields = z.strictObject({
   birthHeadCircMm: z.number().int().min(200).max(450).nullable().optional(),
   feedingMode: z.enum(["breastmilk", "formula", "mixed"]).default("mixed"),
   milkTargetMode: z.enum(["auto", "manual"]).default("auto"),
-  milkTargetManualMl: z.number().int().min(1).max(5000).nullable().optional(),
+  milkTargetManualMl: z.number().int().min(100).max(1500).nullable().optional(),
   allergiesNote: z.string().trim().max(300).nullable().optional(),
   avatar: z.string().trim().min(1).max(40).default("initials"),
   color: z.string().trim().min(1).max(40).default("sage"),
@@ -430,3 +453,5 @@ export const ApiErrorSchema = z.strictObject({
   }),
 });
 export type ApiError = z.infer<typeof ApiErrorSchema>;
+
+export * from "./health.js";
