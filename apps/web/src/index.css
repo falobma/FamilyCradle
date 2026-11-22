@@ -1,0 +1,48 @@
+@import "@fontsource/nunito/latin-400.css";
+@import "@fontsource/nunito/latin-600.css";
+@import "@fontsource/nunito/latin-700.css";
+@import "@fontsource/fredoka/latin-500.css";
+@import "@fontsource/fredoka/latin-600.css";
+@import "./styles/tailwind.css";
+@import "./App.css";
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--color-cocoa-900);
+  background: var(--color-cocoa-50);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+button,
+a {
+  font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--color-cocoa-500);
+  outline-offset: 3px;
+}
+
+::selection {
+  color: var(--color-cocoa-900);
+  background: var(--color-cocoa-200);
+}

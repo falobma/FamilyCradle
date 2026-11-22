@@ -359,7 +359,7 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 ## 7. Data model
 
 ### 7.1 Conventions
-- Primary keys: `TEXT` UUID v7. Log entries get IDs generated **on the client** (needed for offline idempotency). Other tables may generate IDs on the server.
+- Primary keys: `TEXT` UUID v7, except deterministic multi-child log siblings, which use UUID v5 IDs derived from the client-generated base UUIDv7 and child ID (Section 11.2). Log entry base IDs are generated **on the client** for offline idempotency; other tables may generate IDs on the server.
 - All timestamps stored as `TEXT` ISO-8601 in **UTC** (e.g. `2026-11-22T03:12:00.000Z`). Date-only values (DOB, vaccine due date) stored as `TEXT` `YYYY-MM-DD`.
 - Units stored as integers in base units: volume in **ml**, weight in **grams**, length and head circumference in **millimetres**, duration in **seconds**.
 - Every family-owned table has: `family_id`, `created_at`, `created_by`, `updated_at`, `updated_by`, `version` (int, starts at 1, +1 on each update), `rev` (int, family-level change counter for sync), `deleted_at` (soft delete / tombstone).
@@ -517,12 +517,13 @@ Constraint (enforced in service layer + partial unique index): at most **one** `
 | dose_label | TEXT | |
 | due_date | TEXT | `YYYY-MM-DD`, editable |
 | window_end_date | TEXT | editable |
-| status_override | TEXT NULL | `done` / `skipped` / NULL (status otherwise computed, Section 8.10) |
+| status_override | TEXT NULL | `skipped` / NULL; completion is determined by `given_date` (Section 8.11) |
 | given_date | TEXT NULL | |
 | given_place | TEXT NULL | |
 | batch_number | TEXT NULL | |
 | note | TEXT NULL | |
 | is_custom | INTEGER | |
+| follow_optional | INTEGER | 0/1, default 0; applies to `optional_endemic` definitions |
 | common columns | | |
 
 **`milestone_definition`** (seed): `id`, `source` (`CDC-2022`), `age_months` (2, 4, 6, 9, 12, 15, 18, 24), `domain` (`social_emotional` / `language_communication` / `cognitive` / `movement_physical`), `text_id`, `text_en`, `sort_order`.
@@ -541,7 +542,7 @@ Constraint (enforced in service layer + partial unique index): at most **one** `
 | reaction_status | TEXT | `none` / `suspected` / `confirmed_avoid` |
 | common columns | | |
 
-**`audit_log`**: `id`, `family_id`, `actor_user_id`, `entity_type`, `entity_id`, `action` (`create`/`update`/`delete`/`restore`), `changes` (JSON diff of changed fields; visible only to family members and never written to server logs), `at`. Retained 1 year.
+**`audit_log`**: `id`, `family_id`, `actor_user_id`, `entity_type`, `entity_id`, `action` (`create`/`update`/`delete`/`restore`), `changes` (JSON diff of changed fields; visible only to family members and never written to server logs), `at`. Retained for up to 1 year while the family remains active; when a family is deleted, its audit rows are hard-deleted with the family after the 7-day restore window (PRV-06).
 
 **Phase 2 tables**
 - `ai_insight`: `id`, `family_id`, `child_id`, `kind` (`weekly_summary` / `pattern` / `growth_alert` / `suggestion_mpasi` / `suggestion_sleep`), `period_start`, `period_end`, `language`, `content` (JSON per schema in Appendix E), `red_flags` (JSON), `model`, `prompt_version`, `input_hash`, `created_by` (`system` or user id), `created_at`, `feedback` (`helpful`/`not_helpful`/`unsafe` NULL), `feedback_by`.
@@ -672,15 +673,15 @@ Enum values are stored as the codes above; display labels come from i18n files.
 
 ### 8.11 Vaccines (M9)
 - **BR-VAX-01** When a child is created, the server generates `child_vaccine` rows from `vaccine_definition` (`schedule_version = IDAI-2024`, Appendix A) using default options (`DTP_SCHEDULE = 2-3-4`, `ROTA_PRODUCT = RV1`). `due_date = DOB + due_offset`, `window_end_date = DOB + window_end_offset` (calendar arithmetic, e.g. `addMonths`).
-- **BR-VAX-02** Parents and caregivers can: mark done (date, place, batch no., note), undo done, reschedule (edit due date and window end), mark skipped / not applicable, add a custom vaccine (name, dose label, due date), delete a custom vaccine, and switch option groups (DTP schedule, Rotavirus product). Switching options regenerates only **not-done** doses of that group.
-- **BR-VAX-03** Computed status (if no override):
-  - `done`: `given_date` set.
-  - `skipped`: override.
+- **BR-VAX-02** Parents and caregivers can: mark done (date, place, batch no., note), undo done, reschedule (edit due date and window end), mark skipped / not applicable, add a custom vaccine (name, dose label, due date), delete a custom vaccine, and switch option groups (DTP schedule, Rotavirus product). Switching options regenerates only **not-done** doses of that group. Marking done sets `given_date` and clears `status_override`; undoing done clears `given_date`. Marking skipped sets `status_override = skipped` and clears `given_date`; undoing skipped clears the override.
+- **BR-VAX-03** Computed status:
+  - `skipped`: `status_override = skipped`.
+  - `done`: `given_date` set (a vaccine cannot be both done and skipped).
   - `upcoming`: today < due_date − 7 days.
   - `due_soon`: due_date − 7 days ≤ today < due_date.
   - `due`: due_date ≤ today ≤ window_end_date.
   - `late`: today > window_end_date and not done.
-- **BR-VAX-04** `optional_endemic` vaccines (e.g. JE) are generated but shown in a collapsed "Opsional / sesuai daerah" group, excluded from "late" counts unless the parent marks them as "Saya ingin mengikuti".
+- **BR-VAX-04** `optional_endemic` vaccines (e.g. JE) are generated but shown in a collapsed "Opsional / sesuai daerah" group. They are excluded from "late" counts unless a parent opts in with "Saya ingin mengikuti"; this choice is stored per child vaccine in `follow_optional`.
 - **BR-VAX-05** Vaccines tab header: "Selesai 8 dari 21 · 1 terlambat · Berikutnya: PCV 3 (12 Des)".
 - **BR-VAX-06** Disclaimer: "Jadwal berdasarkan rekomendasi IDAI 2024. Ikuti jadwal dari dokter anak Anda."
 
@@ -696,7 +697,7 @@ Enum values are stored as the codes above; display labels come from i18n files.
 - **BR-SYNC-03 Offline create/edit:** when offline (or request fails due to network), mutations are stored in a Dexie queue with the client-generated ID and the client timestamp. UI updates optimistically and shows a small "Belum tersinkron" cloud icon on those entries.
 - **BR-SYNC-04 Replay:** queue replays in order when online. Creates are idempotent (`PUT /api/logs/:id` upsert by client ID). If the same ID already exists with identical content, return 200.
 - **BR-SYNC-05 Conflicts (optimistic concurrency):** updates send `version`. If the server version is higher, the server returns `409` with the current row. Default resolution: **server wins**, and the client shows a toast "Catatan ini sudah diubah oleh Ayah. Perubahanmu tidak disimpan." with a "Lihat" action. Deletes always win over edits.
-- **BR-SYNC-06 Timers offline:** starting a timer offline creates a running entry with client time and `source = timer`; on sync the server accepts the client `started_at` if within the last 24 h. If another member already has a running timer of the same type for that child, the server returns 409 and the client offers "Gabungkan" (keep the earlier start) or "Batalkan punyaku".
+- **BR-SYNC-06 Timers offline:** starting a timer offline creates a running entry with client time and `source = timer`; on sync the server accepts the client `started_at` only if it is within the last 24 h and also satisfies BR-TIME-04 (no more than 5 minutes in the future and not before the child's DOB). Otherwise, reject it with `VALIDATION_ERROR`. If another member already has a running timer of the same type for that child, the server returns 409 and the client offers "Gabungkan" (keep the earlier start) or "Batalkan punyaku".
 - **BR-SYNC-07** Read data cached for offline: the last 14 days of entries per child, child profiles, vaccine list, milestone list.
 
 ### 8.14 Multiple children and twins (X3)
@@ -924,7 +925,7 @@ Values are a starting palette; the agent may fine-tune but must keep WCAG AA con
 | DELETE | `/api/children/:cid` | parent | soft delete |
 | POST | `/api/children/:cid/restore` | parent | restore |
 | GET | `/api/children/:cid/logs?from=&to=&types=` | member | entries in range (max 31 days per call) |
-| PUT | `/api/logs/:id` | member | idempotent create-or-update (client id). Body includes `childIds?` for multi-child create (server creates sibling ids derived deterministically: `uuidv5(id, childId)`) |
+| PUT | `/api/logs/:id` | member | idempotent create-or-update (client id). Body includes `childIds?` for multi-child create (the supplied UUIDv7 identifies the first child entry; sibling IDs are deterministic UUIDv5 values derived from `(id, childId)`, as an explicit exception to the UUIDv7 convention) |
 | DELETE | `/api/logs/:id` | member | soft delete |
 | POST | `/api/logs/:id/restore` | member | restore within 7 days |
 | GET | `/api/logs/:id/history` | member | audit history |
@@ -1122,7 +1123,7 @@ See Appendix F. Each flag has `code`, `severity` (`info` / `watch` / `consult`),
 
 **Phase 1 Definition of Done**
 - [ ] A new user can sign up, verify email, create a family, add a child, invite a caregiver and a second parent with codes.
-- [ ] All 10 modules can be logged (where Vaksin and Milestone are status updates), edited, deleted and restored by Mom, Dad and Caregiver, and each entry shows who logged it.
+- [ ] All 10 modules support their specified create/update/delete/restore or status-update operations for Mom, Dad and Caregiver (Vaksin and Milestone follow their module-specific rules), and each entry shows who logged it.
 - [ ] A timer started on device A shows on device B within 6 s and can be stopped from device B with correct duration.
 - [ ] Logging works offline and syncs correctly when back online; conflicts handled per BR-SYNC-05.
 - [ ] Caregiver cannot access any parent-only endpoint (automated tests for every route).
