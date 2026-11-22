@@ -129,6 +129,7 @@ export function Journal({
   }>;
 }) {
   const { t } = useTranslation();
+  const [activeTab, setActiveTab] = useState<"record" | "history">("record");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [deletedEntries, setDeletedEntries] = useState<Entry[]>([]);
   const [selectedChildren, setSelectedChildren] = useState<string[]>(
@@ -160,6 +161,7 @@ export function Journal({
     id: string;
     items: HistoryItem[];
   } | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [defaultTime, setDefaultTime] = useState(() => localDateTimeInput());
   const [noteOpen, setNoteOpen] = useState(false);
   const [timeValue, setTimeValue] = useState(defaultTime);
@@ -178,6 +180,7 @@ export function Journal({
   const [selectedTypes, setSelectedTypes] = useState<string[]>([...types]);
   const [newestFirst, setNewestFirst] = useState(true);
   const syncRevision = useRef(0);
+  const detailDialogRef = useRef<HTMLDialogElement>(null);
 
   const observeServerDate = useCallback(
     (
@@ -258,6 +261,7 @@ export function Journal({
   }, [entries]);
 
   function openSheet(type: (typeof types)[number], entry: Entry | null) {
+    setActiveTab("record");
     setEditingEntry(entry);
     setKind(type);
     setNoteOpen(Boolean(entry?.note));
@@ -905,22 +909,90 @@ export function Journal({
     const months = (clock - dob.valueOf()) / (30.44 * 24 * 3600 * 1000);
     return months < 6;
   })();
-  const visibleEntries = dayEntries
-    .filter((entry) => selectedTypes.includes(entry.type))
+  const visibleEntries = entries
+    .filter(
+      (entry) =>
+        selectedTypes.includes(entry.type) &&
+        (selectedChildren.length === 0 ||
+          entry.childId === null ||
+          selectedChildren.includes(entry.childId)),
+    )
     .sort((a, b) =>
       newestFirst
         ? b.startedAt.localeCompare(a.startedAt)
         : a.startedAt.localeCompare(b.startedAt),
     );
+  const historyGroups = visibleEntries.reduce<
+    Array<{ date: string; entries: Entry[] }>
+  >((groups, entry) => {
+    const date = localDate(new Date(entry.startedAt));
+    const currentGroup = groups[groups.length - 1];
+    if (currentGroup?.date === date) currentGroup.entries.push(entry);
+    else groups.push({ date, entries: [entry] });
+    return groups;
+  }, []);
+  const selectedEntry = selectedEntryId
+    ? (entries.find((entry) => entry.id === selectedEntryId) ?? null)
+    : null;
+
+  useEffect(() => {
+    const dialog = detailDialogRef.current;
+    if (!dialog) return;
+    if (selectedEntry && !dialog.open) dialog.showModal();
+    else if (!selectedEntry && dialog.open) dialog.close();
+  }, [selectedEntry]);
+
+  function editEntry(entry: Entry) {
+    const type = types.find((candidate) => candidate === entry.type);
+    if (!type) return;
+    setSelectedEntryId(null);
+    openSheet(type, entry);
+  }
 
   return (
-    <section className="journal" aria-label={t("today")}>
+    <section
+      className="journal"
+      aria-label={t(activeTab === "record" ? "newRecord" : "history")}
+    >
+      <div
+        className="journal-tabs"
+        role="group"
+        aria-label={t("journalSections")}
+      >
+        <button
+          aria-pressed={activeTab === "record"}
+          className="journal-tab"
+          onClick={() => setActiveTab("record")}
+          type="button"
+        >
+          {t("newRecord")}
+        </button>
+        <button
+          aria-pressed={activeTab === "history"}
+          className="journal-tab"
+          onClick={() => setActiveTab("history")}
+          type="button"
+        >
+          {t("history")}
+        </button>
+        <button
+          className="journal-tab journal-tab-disabled"
+          disabled
+          title={t("phase2Coming")}
+          type="button"
+        >
+          <span>{t("insights")}</span>
+          <small>{t("phase2Coming")}</small>
+        </button>
+      </div>
       <div className="journal-heading">
         <div>
-          <p className="portal-kicker">{t("today")}</p>
-          <h2>{t("timeline")}</h2>
+          <p className="portal-kicker">
+            {t(activeTab === "record" ? "today" : "history")}
+          </p>
+          <h2>{t(activeTab === "record" ? "newRecord" : "timeline")}</h2>
         </div>
-        <div className="journal-day-picker">
+        <div className="journal-day-picker" hidden={activeTab !== "record"}>
           <button
             className="journal-day-button"
             type="button"
@@ -1003,7 +1075,7 @@ export function Journal({
           </fieldset>
         )}
       </div>
-      <div className="journal-actions">
+      <div className="journal-actions" hidden={activeTab !== "record"}>
         {types.map((type) => (
           <button
             className="portal-secondary"
@@ -1015,7 +1087,7 @@ export function Journal({
           </button>
         ))}
       </div>
-      <div className="journal-quick-actions">
+      <div className="journal-quick-actions" hidden={activeTab !== "record"}>
         <span>{t("quickBottle")}</span>
         {quickBottleMl.map((ml) => (
           <button
@@ -1046,7 +1118,11 @@ export function Journal({
         </button>
       </div>
       {runningTimers.length > 0 && (
-        <div className="journal-sticky-timers" role="status">
+        <div
+          className="journal-sticky-timers"
+          hidden={activeTab !== "record"}
+          role="status"
+        >
           {runningTimers.map((entry) => (
             <div key={entry.id}>
               <strong>{labels[entry.type] ?? entry.type}</strong> ·{" "}
@@ -1064,7 +1140,7 @@ export function Journal({
           ))}
         </div>
       )}
-      <div className="journal-status-grid">
+      <div className="journal-status-grid" hidden={activeTab !== "record"}>
         <article>
           <h3>{t("bottleTotal")}</h3>
           <strong>{bottleMl} ml</strong>
@@ -1130,12 +1206,16 @@ export function Journal({
         )}
       </div>
       {timezoneMismatch && (
-        <p className="portal-muted">
+        <p className="portal-muted" hidden={activeTab !== "record"}>
           {t("familyTimezoneHint")}: {familyTimezone}
         </p>
       )}
       {longRunningTimer && (
-        <p role="status" className="portal-message">
+        <p
+          role="status"
+          className="portal-message"
+          hidden={activeTab !== "record"}
+        >
           {longRunningTimer.type === "breastfeed"
             ? t("stillNursing")
             : t("stillSleeping")}
@@ -1164,7 +1244,7 @@ export function Journal({
           )}
         </p>
       )}
-      {kind && (
+      {kind && activeTab === "record" && (
         <form
           className="portal-form journal-sheet"
           key={editingEntry?.id ?? kind}
@@ -1901,7 +1981,7 @@ export function Journal({
           </div>
         </form>
       )}
-      <div className="journal-summary">
+      <div className="journal-summary" hidden={activeTab !== "record"}>
         <span>
           {t("bottleTotal")}: <strong>{bottleMl} ml</strong>
         </span>
@@ -1918,7 +1998,7 @@ export function Journal({
           </strong>
         </span>
       </div>
-      <div className="journal-summary-extra">
+      <div className="journal-summary-extra" hidden={activeTab !== "record"}>
         <span>
           {t("feedCount")}:{" "}
           <strong>
@@ -1939,7 +2019,7 @@ export function Journal({
           </strong>
         </span>
       </div>
-      <div className="journal-filters">
+      <div className="journal-filters" hidden={activeTab !== "history"}>
         <div>
           {types.map((type) => (
             <button
@@ -1967,148 +2047,69 @@ export function Journal({
           {newestFirst ? t("oldestFirst") : t("newestFirst")}
         </button>
       </div>
-      <ol className="journal-timeline">
-        {visibleEntries.map((entry) => (
-          <li key={entry.id}>
-            <div>
-              <strong>{labels[entry.type] ?? entry.type}</strong>
-              <span>
-                {t("loggedBy")} {entry.createdByDisplayName ?? ""}
-              </span>
-              {entry.updatedBy !== entry.createdBy && (
-                <span>
-                  {t("editedBy")} {entry.updatedByDisplayName ?? ""}
-                </span>
-              )}
-              <time>
-                {new Date(entry.startedAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-              {entry.type === "sleep" &&
-                localDate(new Date(entry.startedAt)) !== selectedDate && (
-                  <span className="journal-continuation">
-                    {t("continuation")}
-                  </span>
+      <div className="journal-history-groups" hidden={activeTab !== "history"}>
+        {historyGroups.length === 0 && (
+          <p className="portal-muted">{t("noEntries")}</p>
+        )}
+        {historyGroups.map((group) => (
+          <section className="journal-history-day" key={group.date}>
+            <header className="journal-history-day-heading">
+              <h3>
+                {new Date(`${group.date}T12:00:00`).toLocaleDateString(
+                  undefined,
+                  {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  },
                 )}
-              <span>{detailSummary(entry)}</span>
-              {entry.amountMl !== null && <span>{entry.amountMl} ml</span>}
-              {entry.status === "running" && <span>{t("timerRunning")}</span>}
-              {(entry.status === "running" || entry.status === "paused") && (
-                <span className="journal-timer">
-                  {formatElapsed(elapsed(entry))}
-                </span>
-              )}
-              {entry.note && <p>{entry.note}</p>}
-            </div>
-            <div className="portal-child-actions">
-              {entry.status === "completed" && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() =>
-                    openSheet(entry.type as (typeof types)[number], entry)
-                  }
-                  type="button"
-                >
-                  {t("editChild")}
-                </button>
-              )}
-              <button
-                className="portal-inline-button"
-                type="button"
-                onClick={() => void openHistory(entry)}
-              >
-                {t("history")}
-              </button>
-              {entry.status === "completed" && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() => void duplicate(entry)}
-                  type="button"
-                >
-                  {t("duplicate")}
-                </button>
-              )}
-              {history?.id === entry.id && (
-                <div className="journal-history">
-                  <ul>
-                    {history.items.map((item, index) => (
-                      <li key={`${item.at}-${index}`}>
-                        <strong>{item.actorDisplayName}</strong> · {item.action}{" "}
-                        ·{" "}
-                        {new Date(item.at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </li>
-                    ))}
-                  </ul>
+              </h3>
+              <span>{t("recordsCount", { count: group.entries.length })}</span>
+            </header>
+            <ul className="journal-history-list">
+              {group.entries.map((entry) => (
+                <li key={entry.id}>
                   <button
-                    className="portal-inline-button"
+                    className="journal-entry-card"
+                    onClick={() => setSelectedEntryId(entry.id)}
                     type="button"
-                    onClick={() => setHistory(null)}
                   >
-                    {t("close")}
+                    <span className="journal-entry-type">
+                      {labels[entry.type] ?? entry.type}
+                    </span>
+                    <span className="journal-entry-content">
+                      <strong>
+                        {detailSummary(entry) || t("recordDetails")}
+                      </strong>
+                      <span>
+                        {entry.childId
+                          ? (children.find(
+                              (child) => child.id === entry.childId,
+                            )?.name ?? t("familyLevel"))
+                          : t("familyLevel")}
+                        {" · "}
+                        {t("loggedBy")} {entry.createdByDisplayName ?? ""}
+                      </span>
+                    </span>
+                    <span className="journal-entry-time">
+                      {new Date(entry.startedAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    <span className="journal-entry-chevron" aria-hidden="true">
+                      ›
+                    </span>
                   </button>
-                </div>
-              )}
-              {entry.status === "running" && entry.type === "breastfeed" && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() => void timerAction(entry, "switch")}
-                  type="button"
-                >
-                  {t("switchSide")}
-                </button>
-              )}
-              {entry.status === "running" && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() => void timerAction(entry, "pause")}
-                  type="button"
-                >
-                  {t("pauseTimer")}
-                </button>
-              )}
-              {entry.status === "paused" && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() => void timerAction(entry, "resume")}
-                  type="button"
-                >
-                  {t("resumeTimer")}
-                </button>
-              )}
-              {(entry.status === "running" || entry.status === "paused") && (
-                <button
-                  className="portal-inline-button"
-                  disabled={busy}
-                  onClick={() => void stop(entry)}
-                  type="button"
-                >
-                  {t("stopTimer")}
-                </button>
-              )}
-              <button
-                className="portal-inline-button"
-                disabled={busy}
-                onClick={() => void remove(entry)}
-                type="button"
-              >
-                {t("deleteChild")}
-              </button>
-            </div>
-          </li>
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ol>
+      </div>
       {deletedEntries.length > 0 && (
-        <div className="journal-deleted">
+        <div className="journal-deleted" hidden={activeTab !== "history"}>
           <h3>{t("recentlyDeleted")}</h3>
           <ul>
             {deletedEntries.map((entry) => (
@@ -2130,6 +2131,202 @@ export function Journal({
           </ul>
         </div>
       )}
+      <dialog
+        aria-labelledby="journal-entry-detail-title"
+        className="journal-detail-dialog"
+        onClose={() => setSelectedEntryId(null)}
+        onClick={(event) => {
+          if (event.target === event.currentTarget) setSelectedEntryId(null);
+        }}
+        ref={detailDialogRef}
+      >
+        {selectedEntry && (
+          <div className="journal-detail">
+            <header className="journal-detail-header">
+              <div>
+                <p className="portal-kicker">
+                  {labels[selectedEntry.type] ?? selectedEntry.type}
+                </p>
+                <h2 id="journal-entry-detail-title">
+                  {detailSummary(selectedEntry) ||
+                    labels[selectedEntry.type] ||
+                    selectedEntry.type}
+                </h2>
+                <p>
+                  {selectedEntry.childId
+                    ? (children.find(
+                        (child) => child.id === selectedEntry.childId,
+                      )?.name ?? t("familyLevel"))
+                    : t("familyLevel")}
+                </p>
+              </div>
+              <button
+                aria-label={t("close")}
+                className="journal-detail-close"
+                onClick={() => setSelectedEntryId(null)}
+                type="button"
+              >
+                ×
+              </button>
+            </header>
+            <div className="journal-detail-summary">
+              <span>{t("recordedAt")}</span>
+              <strong>
+                {new Date(selectedEntry.startedAt).toLocaleString()}
+              </strong>
+            </div>
+            <dl className="journal-detail-grid">
+              <div>
+                <dt>{t("recordedBy")}</dt>
+                <dd>{selectedEntry.createdByDisplayName ?? ""}</dd>
+              </div>
+              <div>
+                <dt>{t("entryStatus")}</dt>
+                <dd>
+                  {selectedEntry.status === "running"
+                    ? t("timerRunning")
+                    : selectedEntry.status === "paused"
+                      ? t("paused")
+                      : t("completed")}
+                </dd>
+              </div>
+              {(selectedEntry.durationSec !== null ||
+                selectedEntry.status === "running" ||
+                selectedEntry.status === "paused") && (
+                <div>
+                  <dt>{t("duration")}</dt>
+                  <dd>{formatElapsed(elapsed(selectedEntry))}</dd>
+                </div>
+              )}
+              {selectedEntry.updatedBy !== selectedEntry.createdBy && (
+                <div>
+                  <dt>{t("lastEditedBy")}</dt>
+                  <dd>{selectedEntry.updatedByDisplayName ?? ""}</dd>
+                </div>
+              )}
+              {selectedEntry.note && (
+                <div className="journal-detail-note">
+                  <dt>{t("note")}</dt>
+                  <dd>{selectedEntry.note}</dd>
+                </div>
+              )}
+            </dl>
+            {history?.id === selectedEntry.id && (
+              <div className="journal-detail-audit">
+                <h3>{t("history")}</h3>
+                <ul>
+                  {history.items.map((item, index) => (
+                    <li key={`${item.at}-${index}`}>
+                      <strong>{item.actorDisplayName}</strong> · {item.action} ·{" "}
+                      {new Date(item.at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <footer className="journal-detail-actions">
+              <div>
+                {selectedEntry.status === "completed" &&
+                  types.some((type) => type === selectedEntry.type) && (
+                    <button
+                      className="portal-secondary"
+                      disabled={busy}
+                      onClick={() => editEntry(selectedEntry)}
+                      type="button"
+                    >
+                      {t("editChild")}
+                    </button>
+                  )}
+                <button
+                  className="portal-secondary"
+                  disabled={busy}
+                  onClick={() => void openHistory(selectedEntry)}
+                  type="button"
+                >
+                  {t("history")}
+                </button>
+                {selectedEntry.status === "completed" && (
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setSelectedEntryId(null);
+                      setActiveTab("record");
+                      void duplicate(selectedEntry);
+                    }}
+                    type="button"
+                  >
+                    {t("duplicate")}
+                  </button>
+                )}
+                {selectedEntry.status === "running" &&
+                  selectedEntry.type === "breastfeed" && (
+                    <button
+                      className="portal-secondary"
+                      disabled={busy}
+                      onClick={() => void timerAction(selectedEntry, "switch")}
+                      type="button"
+                    >
+                      {t("switchSide")}
+                    </button>
+                  )}
+                {selectedEntry.status === "running" && (
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    onClick={() => void timerAction(selectedEntry, "pause")}
+                    type="button"
+                  >
+                    {t("pauseTimer")}
+                  </button>
+                )}
+                {selectedEntry.status === "paused" && (
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    onClick={() => void timerAction(selectedEntry, "resume")}
+                    type="button"
+                  >
+                    {t("resumeTimer")}
+                  </button>
+                )}
+                {(selectedEntry.status === "running" ||
+                  selectedEntry.status === "paused") && (
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    onClick={() => void stop(selectedEntry)}
+                    type="button"
+                  >
+                    {t("stopTimer")}
+                  </button>
+                )}
+                <button
+                  className="portal-secondary journal-detail-delete"
+                  disabled={busy}
+                  onClick={() => {
+                    setSelectedEntryId(null);
+                    void remove(selectedEntry);
+                  }}
+                  type="button"
+                >
+                  {t("deleteChild")}
+                </button>
+              </div>
+              <button
+                className="portal-secondary"
+                onClick={() => setSelectedEntryId(null)}
+                type="button"
+              >
+                {t("close")}
+              </button>
+            </footer>
+          </div>
+        )}
+      </dialog>
     </section>
   );
 }
