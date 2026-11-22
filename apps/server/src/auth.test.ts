@@ -187,7 +187,7 @@ describe("authentication rate limits", () => {
         .set("Origin", environment.APP_URL)
         .send({ email, password: "incorrect-password" });
 
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
       expect((await signIn("parent@example.com")).status).not.toBe(429);
     }
 

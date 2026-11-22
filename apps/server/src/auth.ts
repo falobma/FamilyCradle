@@ -324,7 +324,7 @@ export function createAuth(
         if (context.path === "/sign-in/email") {
           await enforceEmailRateLimit(
             `sign-in:${ipAddress ?? "unknown"}:${email}`,
-            5,
+            15,
             15 * 60,
           );
           return;

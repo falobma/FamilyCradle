@@ -303,7 +303,7 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 | SEC-AUTH-04 | Session: `expiresIn = 7 days`, `updateAge = 1 hour`. Effect: the session expires 7 days after the user's **last** activity; any visit extends it again to 7 days (sliding). |
 | SEC-AUTH-05 | Session cookie: `httpOnly`, `secure` (prod), `SameSite=Lax`, `path=/`. No tokens in `localStorage`. |
 | SEC-AUTH-06 | Password policy: min 8, max 128 characters; reject passwords found in known breach lists (use Better Auth's breached-password plugin if available in the installed version; otherwise document the gap). |
-| SEC-AUTH-07 | Rate limits: sign-in 5 attempts / 15 min per IP + email; sign-up 5 / hour per IP; forgot-password 3 / hour per email. Use Better Auth built-in rate limiting with database storage (not memory, because Cloud Run has multiple instances). |
+| SEC-AUTH-07 | Rate limits: sign-in 15 attempts / 15 min per IP + email; sign-up 5 / hour per IP; forgot-password 3 / hour per email. Use Better Auth built-in rate limiting with database storage (not memory, because Cloud Run has multiple instances). |
 | SEC-AUTH-08 | Responses for sign-in, sign-up and forgot-password must not reveal whether an email exists (generic messages). |
 | SEC-AUTH-09 | `trustedOrigins = [APP_URL]`. Better Auth origin checks must stay enabled (CSRF protection). |
 | SEC-AUTH-10 | "Log out" ends the current session; "Log out from all devices" revokes all sessions. Changing password revokes other sessions. |
