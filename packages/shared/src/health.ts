@@ -11,6 +11,43 @@ export const HealthDateSchema = z
     );
   });
 
+export function addOffset(date: string, offset: string): string {
+  const parsed = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(-?\d+)D)?$/.exec(
+    offset,
+  );
+  if (!parsed) throw new Error(`Unsupported date offset: ${offset}`);
+
+  const result = new Date(`${date.slice(0, 10)}T00:00:00.000Z`);
+  const months = Number(parsed[2] ?? 0) + Number(parsed[1] ?? 0) * 12;
+  const days = Number(parsed[4] ?? 0) + Number(parsed[3] ?? 0) * 7;
+  if (months > 0) {
+    const targetMonth = result.getUTCMonth() + months;
+    const targetYear = result.getUTCFullYear() + Math.floor(targetMonth / 12);
+    const monthIndex = targetMonth % 12;
+    const day = result.getUTCDate();
+    result.setUTCDate(1);
+    result.setUTCFullYear(targetYear, monthIndex, 1);
+    const lastDay = new Date(
+      Date.UTC(targetYear, monthIndex + 1, 0),
+    ).getUTCDate();
+    result.setUTCDate(Math.min(day, lastDay));
+  }
+  result.setUTCDate(result.getUTCDate() + days);
+  return result.toISOString().slice(0, 10);
+}
+
+export function ageMonths(birthDate: string, onDate: string): number {
+  const birth = new Date(`${birthDate.slice(0, 10)}T00:00:00.000Z`);
+  const current = new Date(`${onDate.slice(0, 10)}T00:00:00.000Z`);
+  let months =
+    (current.getUTCFullYear() - birth.getUTCFullYear()) * 12 +
+    current.getUTCMonth() -
+    birth.getUTCMonth();
+  if (current.toISOString().slice(0, 10) < addOffset(birthDate, `P${months}M`))
+    months -= 1;
+  return Math.max(0, months);
+}
+
 const GrowthMeasurementFields = z.strictObject({
   measuredAt: HealthDateSchema,
   weightG: z.number().int().min(400).max(25_000).nullable().optional(),
@@ -22,6 +59,8 @@ const GrowthMeasurementFields = z.strictObject({
     .optional(),
   note: z.string().trim().max(500).nullable().optional(),
 });
+
+export const MAX_GROWTH_PHOTO_BYTES = 300 * 1024;
 
 function requireGrowthValue(
   value: z.infer<typeof GrowthMeasurementFields>,
@@ -43,11 +82,51 @@ function requireGrowthValue(
 export const CreateGrowthMeasurementSchema = GrowthMeasurementFields.extend({
   id: z.uuid(),
   confirmLargeChange: z.boolean().optional(),
+  photo: z
+    .string()
+    .max(Math.ceil(MAX_GROWTH_PHOTO_BYTES / 3) * 4)
+    .regex(/^[A-Za-z0-9+/]*={0,2}$/)
+    .optional(),
 }).superRefine(requireGrowthValue);
 export const UpdateGrowthMeasurementSchema = GrowthMeasurementFields.extend({
   version: z.number().int().min(1),
   confirmLargeChange: z.boolean().optional(),
 }).superRefine(requireGrowthValue);
+
+export const CreateGrowthTargetSchema = z
+  .strictObject({
+    id: z.uuid(),
+    targetDate: HealthDateSchema,
+    weightMinG: z.number().int().min(400).max(25_000).nullable(),
+    weightMaxG: z.number().int().min(400).max(25_000).nullable(),
+    lengthMinMm: z.number().int().min(300).max(1_100).nullable(),
+    lengthMaxMm: z.number().int().min(300).max(1_100).nullable(),
+  })
+  .superRefine((value, context) => {
+    const pairs = [
+      ["weightMinG", value.weightMinG, value.weightMaxG],
+      ["lengthMinMm", value.lengthMinMm, value.lengthMaxMm],
+    ] as const;
+    if (pairs.every(([, min, max]) => min === null && max === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "At least one complete target range is required.",
+      });
+    }
+    for (const [field, min, max] of pairs) {
+      if (
+        (min === null) !== (max === null) ||
+        (min !== null && max !== null && min > max)
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message:
+            "Enter both bounds with the minimum no greater than the maximum.",
+        });
+      }
+    }
+  });
 
 export const CreateCustomVaccineSchema = z
   .strictObject({

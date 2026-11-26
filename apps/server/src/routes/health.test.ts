@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MAX_GROWTH_PHOTO_BYTES } from "@familycradle/shared";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,12 +20,14 @@ import {
   familyMember,
   familyRevCounter,
   growthMeasurement,
+  growthPhoto,
   schema,
   user,
   userProfile,
 } from "../db/schema.js";
 import { createUuidV7 } from "../ids.js";
 import { createHealthRouter } from "./health.js";
+import { createSyncRouter } from "./sync.js";
 
 const parentId = "019ac600-0000-7000-8000-000000000101";
 const caregiverId = "019ac600-0000-7000-8000-000000000102";
@@ -43,6 +46,16 @@ const app = createApp({
     next();
   },
   apiRouter: createHealthRouter(database),
+  checkDatabase: async () => undefined,
+  logger: pino({ level: "silent" }),
+});
+const syncApp = createApp({
+  apiAuthMiddleware: (request, response, next) => {
+    const userId = request.header("x-test-user");
+    if (userId) response.locals.session = { user: { id: userId } };
+    next();
+  },
+  apiRouter: createSyncRouter(database),
   checkDatabase: async () => undefined,
   logger: pino({ level: "silent" }),
 });
@@ -178,6 +191,108 @@ function asUser(userId: string) {
 }
 
 describe("health record routes", () => {
+  it("validates and syncs dated clinician targets, including removal and replacement", async () => {
+    const path = `/api/children/${childId}/growth-targets`;
+    const body = {
+      id: randomUUID(),
+      targetDate: today,
+      weightMinG: 3500,
+      weightMaxG: 4500,
+      lengthMinMm: null,
+      lengthMaxMm: null,
+    };
+    expect(
+      (await request(app).post(path).set(asUser(outsiderId)).send(body)).status,
+    ).toBe(404);
+    for (const invalid of [
+      { ...body, targetDate: daysAgo(21) },
+      { ...body, targetDate: "2026-02-30" },
+      { ...body, weightMaxG: null },
+      { ...body, weightMinG: 4600 },
+      { ...body, weightMinG: null, weightMaxG: null },
+    ]) {
+      expect(
+        (await request(app).post(path).set(asUser(parentId)).send(invalid))
+          .status,
+      ).toBe(400);
+    }
+    const created = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send(body);
+    expect(created.status).toBe(201);
+    const createdSync = await request(syncApp)
+      .get(`/api/families/${familyId}/sync?since=0`)
+      .set(asUser(caregiverId));
+    expect(createdSync.body.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "growth_target",
+          row: expect.objectContaining({ id: body.id, deletedAt: null }),
+        }),
+      ]),
+    );
+    expect(
+      (
+        await request(app)
+          .post(path)
+          .set(asUser(parentId))
+          .send({ ...body, id: randomUUID() })
+      ).status,
+    ).toBe(409);
+    const read = await request(app)
+      .get(`/api/children/${childId}/growth`)
+      .set(asUser(caregiverId));
+    expect(read.body.targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: body.id, weightMinG: 3500 }),
+      ]),
+    );
+    expect(
+      (
+        await request(app)
+          .delete(`${path}/${body.id}`)
+          .set(asUser(outsiderId))
+          .send({ version: 1 })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(app)
+          .delete(`${path}/${body.id}`)
+          .set(asUser(parentId))
+          .send({ version: 2 })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await request(app)
+          .delete(`${path}/${body.id}`)
+          .set(asUser(parentId))
+          .send({ version: 1 })
+      ).status,
+    ).toBe(204);
+    const sync = await request(syncApp)
+      .get(`/api/families/${familyId}/sync?since=${created.body.rev}`)
+      .set(asUser(caregiverId));
+    expect(sync.body.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "growth_target",
+          row: expect.objectContaining({
+            id: body.id,
+            deletedAt: expect.any(String),
+          }),
+        }),
+      ]),
+    );
+    const replacement = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send({ ...body, id: randomUUID() });
+    expect(replacement.status).toBe(201);
+  });
+
   it("enforces child-family membership and lazily seeds existing children", async () => {
     const denied = await request(app)
       .get(`/api/children/${childId}/vaccines`)
@@ -323,6 +438,151 @@ describe("health record routes", () => {
       .from(familyRevCounter)
       .where(eq(familyRevCounter.familyId, familyId));
     expect(counter?.rev).toBeGreaterThanOrEqual(3);
+  });
+
+  it("stores an optional photo with a growth record and restricts photo access", async () => {
+    const path = `/api/children/${childId}/growth`;
+    const id = createUuidV7();
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const payload = {
+      id,
+      measuredAt: today,
+      lengthMm: 610,
+      photo: jpeg.toString("base64"),
+    };
+    const invalid = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send({
+        ...payload,
+        photo: Buffer.from("not a jpeg").toString("base64"),
+      });
+    expect(invalid.status).toBe(400);
+    expect(
+      await database
+        .select()
+        .from(growthMeasurement)
+        .where(eq(growthMeasurement.id, id)),
+    ).toHaveLength(0);
+
+    const created = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send(payload);
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ id, hasPhoto: true });
+    expect(created.body.photo).toBeUndefined();
+    expect(
+      (
+        await database
+          .select()
+          .from(growthPhoto)
+          .where(eq(growthPhoto.measurementId, id))
+      )[0]?.data,
+    ).toBe(payload.photo);
+
+    const listed = await request(app).get(path).set(asUser(caregiverId));
+    expect(listed.body.items).toContainEqual(
+      expect.objectContaining({ id, hasPhoto: true }),
+    );
+    const photoPath = `${path}/${id}/photo`;
+    const photo = await request(app).get(photoPath).set(asUser(caregiverId));
+    expect(photo.status).toBe(200);
+    expect(photo.headers["content-type"]).toMatch(/^image\/jpeg/);
+    expect(photo.headers["cache-control"]).toBe("private, no-store");
+    expect(photo.body).toEqual(jpeg);
+    expect((await request(app).get(photoPath)).status).toBe(401);
+    expect(
+      (await request(app).get(photoPath).set(asUser(outsiderId))).status,
+    ).toBe(404);
+
+    const updated = await request(app)
+      .patch(`${path}/${id}`)
+      .set(asUser(caregiverId))
+      .send({ version: 1, measuredAt: today, lengthMm: 620, note: "updated" });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      version: 2,
+      lengthMm: 620,
+      hasPhoto: true,
+    });
+    expect(
+      (await request(app).get(photoPath).set(asUser(parentId))).body,
+    ).toEqual(jpeg);
+    expect(
+      (
+        await request(app)
+          .delete(`${path}/${id}`)
+          .set(asUser(parentId))
+          .send({ version: 1 })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await request(app)
+          .patch(`${path}/${id}`)
+          .set(asUser(outsiderId))
+          .send({ version: 2, measuredAt: today, lengthMm: 620 })
+      ).status,
+    ).toBe(404);
+
+    const sync = await request(syncApp)
+      .get(`/api/families/${familyId}/sync?since=0`)
+      .set(asUser(caregiverId));
+    const item = sync.body.items.find(
+      (entry: { table: string; row: { id: string } }) =>
+        entry.table === "growth_measurement" && entry.row.id === id,
+    );
+    expect(item.row.hasPhoto).toBe(true);
+    expect(JSON.stringify(item)).not.toContain(payload.photo);
+    const audits = await database
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.entityId, id));
+    expect(audits[0]?.changes).not.toContain(payload.photo);
+
+    const removed = await request(app)
+      .delete(`${path}/${id}`)
+      .set(asUser(parentId))
+      .send({ version: 2 });
+    expect(removed.status).toBe(204);
+    expect(
+      (await request(app).get(photoPath).set(asUser(caregiverId))).status,
+    ).toBe(404);
+    expect(
+      await database
+        .select()
+        .from(growthPhoto)
+        .where(eq(growthPhoto.measurementId, id)),
+    ).toHaveLength(0);
+  });
+
+  it("enforces the stored photo and request size limits", async () => {
+    const path = `/api/children/${childId}/growth`;
+    const bytes = Buffer.alloc(MAX_GROWTH_PHOTO_BYTES);
+    bytes.set([0xff, 0xd8, 0xff], 0);
+    bytes.set([0xff, 0xd9], bytes.length - 2);
+    const base = { id: createUuidV7(), measuredAt: today, lengthMm: 610 };
+    const accepted = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send({ ...base, photo: bytes.toString("base64") });
+    expect(accepted.status).toBe(201);
+    const oversized = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send({
+        ...base,
+        id: createUuidV7(),
+        photo: Buffer.concat([bytes, Buffer.from([0])]).toString("base64"),
+      });
+    expect(oversized.status).toBe(400);
+    const tooLarge = await request(app)
+      .post(path)
+      .set(asUser(parentId))
+      .send({ ...base, photo: "A".repeat(530_000) });
+    expect(tooLarge.status).toBe(413);
+    expect(tooLarge.body.error.code).toBe("TOO_LARGE");
   });
 
   it("tracks vaccine completion and regenerates only unfinished option doses", async () => {

@@ -68,7 +68,14 @@ export function createApp({
   if (authHandler) {
     app.all("/api/auth/*", authHandler);
   }
-  app.use(express.json({ limit: "100kb", strict: true }));
+  const photoJson = express.json({ limit: "512kb", strict: true });
+  const standardJson = express.json({ limit: "100kb", strict: true });
+  app.use((request, response, next) => {
+    const growthCreate =
+      request.method === "POST" &&
+      /^\/api\/children\/[^/]+\/growth\/?$/.test(request.path);
+    return (growthCreate ? photoJson : standardJson)(request, response, next);
+  });
   if (apiAuthMiddleware) {
     app.use("/api", apiAuthMiddleware);
   }
@@ -139,16 +146,27 @@ export function createApp({
         error instanceof SyntaxError &&
         "status" in error &&
         error.status === 400;
+      const tooLarge =
+        typeof error === "object" &&
+        error !== null &&
+        "status" in error &&
+        error.status === 413;
       request.log.error(
         { errorType: error instanceof Error ? error.name : "UnknownError" },
         "Unhandled request error",
       );
-      response.status(invalidJson ? 400 : 500).json({
+      response.status(invalidJson ? 400 : tooLarge ? 413 : 500).json({
         error: {
-          code: invalidJson ? "VALIDATION_ERROR" : "INTERNAL",
+          code: invalidJson
+            ? "VALIDATION_ERROR"
+            : tooLarge
+              ? "TOO_LARGE"
+              : "INTERNAL",
           message: invalidJson
             ? "Request body must be valid JSON."
-            : "An unexpected error occurred.",
+            : tooLarge
+              ? "Request body is too large."
+              : "An unexpected error occurred.",
         },
       });
     },

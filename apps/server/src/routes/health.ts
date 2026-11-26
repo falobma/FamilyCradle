@@ -1,6 +1,8 @@
 import {
   CreateCustomVaccineSchema,
   CreateGrowthMeasurementSchema,
+  CreateGrowthTargetSchema,
+  MAX_GROWTH_PHOTO_BYTES,
   SetVaccineOptionsSchema,
   UpdateGrowthMeasurementSchema,
   UpdateMilestoneSchema,
@@ -32,6 +34,8 @@ import {
   familyMember,
   familyRevCounter,
   growthMeasurement,
+  growthPhoto,
+  growthTarget,
   logEntry,
   milestoneDefinition,
   userProfile,
@@ -368,6 +372,17 @@ export function createHealthRouter(database: Database) {
           ),
         )
         .orderBy(growthMeasurement.measuredAt);
+      const targets = await database
+        .select()
+        .from(growthTarget)
+        .where(
+          and(
+            eq(growthTarget.familyId, access.profile.familyId),
+            eq(growthTarget.childId, cid),
+            isNull(growthTarget.deletedAt),
+          ),
+        )
+        .orderBy(growthTarget.targetDate);
       const userIds = [
         ...new Set(
           measurements.flatMap((row) => [row.createdBy, row.updatedBy]),
@@ -415,7 +430,161 @@ export function createHealthRouter(database: Database) {
           headCircMm: access.profile.birthHeadCircMm,
         },
         items,
+        targets,
       });
+    }),
+  );
+
+  router.post(
+    "/children/:cid/growth-targets",
+    handler(async (request, response) => {
+      const userId = sessionUserId(response);
+      if (!userId) {
+        sendError(response, 401, "UNAUTHENTICATED", "Authentication required.");
+        return;
+      }
+      const cid = routeParam(request, "cid");
+      if (!UuidSchema.safeParse(cid).success) {
+        sendError(response, 400, "VALIDATION_ERROR", "Invalid child ID.");
+        return;
+      }
+      const access = await getAccess(database, cid, userId);
+      if (!access) {
+        sendError(response, 404, "NOT_FOUND", "Child not found.");
+        return;
+      }
+      const body = parseBody(request, response, CreateGrowthTargetSchema);
+      if (!body) return;
+      if (body.targetDate < access.profile.dateOfBirth) {
+        sendError(
+          response,
+          400,
+          "VALIDATION_ERROR",
+          "Target date must be on or after the child's birth date.",
+        );
+        return;
+      }
+      const now = new Date().toISOString();
+      const created = await database.transaction(async (transaction) => {
+        const [inserted] = await transaction
+          .insert(growthTarget)
+          .values({
+            ...body,
+            familyId: access.profile.familyId,
+            childId: cid,
+            createdBy: userId,
+            updatedBy: userId,
+            createdAt: now,
+            updatedAt: now,
+            rev: 0,
+          })
+          .onConflictDoNothing()
+          .returning();
+        if (!inserted) return null;
+        const rev = await bumpRevision(transaction, access.profile.familyId);
+        const [row] = await transaction
+          .update(growthTarget)
+          .set({ rev })
+          .where(eq(growthTarget.id, inserted.id))
+          .returning();
+        if (!row) throw new Error("Growth target was not created.");
+        await addAudit(
+          transaction,
+          access.profile.familyId,
+          userId,
+          "growth_target",
+          row.id,
+          "create",
+          body,
+          now,
+        );
+        return row;
+      });
+      if (!created) {
+        sendError(
+          response,
+          409,
+          "CONFLICT",
+          "A target already exists for this date. Remove it before adding a replacement.",
+        );
+        return;
+      }
+      response.status(201).json(created);
+    }),
+  );
+
+  router.delete(
+    "/children/:cid/growth-targets/:tid",
+    handler(async (request, response) => {
+      const userId = sessionUserId(response);
+      if (!userId) {
+        sendError(response, 401, "UNAUTHENTICATED", "Authentication required.");
+        return;
+      }
+      const cid = routeParam(request, "cid");
+      const tid = routeParam(request, "tid");
+      if (
+        !UuidSchema.safeParse(cid).success ||
+        !UuidSchema.safeParse(tid).success
+      ) {
+        sendError(response, 400, "VALIDATION_ERROR", "Invalid resource ID.");
+        return;
+      }
+      const access = await getAccess(database, cid, userId);
+      if (!access) {
+        sendError(response, 404, "NOT_FOUND", "Child not found.");
+        return;
+      }
+      const body = parseBody(request, response, DeleteVersionSchema);
+      if (!body) return;
+      const now = new Date().toISOString();
+      const removed = await database.transaction(async (transaction) => {
+        const [row] = await transaction
+          .update(growthTarget)
+          .set({
+            deletedAt: now,
+            updatedAt: now,
+            updatedBy: userId,
+            version: sql`${growthTarget.version} + 1`,
+          })
+          .where(
+            and(
+              eq(growthTarget.id, tid),
+              eq(growthTarget.familyId, access.profile.familyId),
+              eq(growthTarget.childId, cid),
+              eq(growthTarget.version, body.version),
+              isNull(growthTarget.deletedAt),
+            ),
+          )
+          .returning();
+        if (!row) return false;
+        const rev = await bumpRevision(transaction, access.profile.familyId);
+        await transaction
+          .update(growthTarget)
+          .set({ rev })
+          .where(eq(growthTarget.id, tid));
+        await addAudit(
+          transaction,
+          access.profile.familyId,
+          userId,
+          "growth_target",
+          tid,
+          "delete",
+          { deletedAt: now },
+          now,
+        );
+        return true;
+      });
+      if (!removed) {
+        sendError(
+          response,
+          409,
+          "CONFLICT",
+          "Target not found or changed. Refresh and try again.",
+        );
+        return;
+      }
+      response.status(204).end();
     }),
   );
 
@@ -468,9 +637,25 @@ export function createHealthRouter(database: Database) {
         );
         return;
       }
-      const now = new Date().toISOString();
-      const values = { ...body };
+      const { photo, ...values } = body;
       delete values.confirmLargeChange;
+      if (photo !== undefined) {
+        const bytes = Buffer.from(photo, "base64");
+        if (
+          bytes.length < 4 ||
+          bytes.length > MAX_GROWTH_PHOTO_BYTES ||
+          bytes.toString("base64") !== photo ||
+          bytes[0] !== 0xff ||
+          bytes[1] !== 0xd8 ||
+          bytes[2] !== 0xff ||
+          bytes.at(-2) !== 0xff ||
+          bytes.at(-1) !== 0xd9
+        ) {
+          sendError(response, 400, "VALIDATION_ERROR", "Invalid JPEG photo.");
+          return;
+        }
+      }
+      const now = new Date().toISOString();
       const [created] = await database.transaction(async (transaction) => {
         const rev = await bumpRevision(transaction, access.profile.familyId);
         const [row] = await transaction
@@ -485,9 +670,16 @@ export function createHealthRouter(database: Database) {
             createdAt: now,
             updatedAt: now,
             rev,
+            hasPhoto: photo !== undefined,
           })
           .returning();
         if (!row) throw new Error("Growth measurement was not created.");
+        if (photo !== undefined) {
+          await transaction.insert(growthPhoto).values({
+            measurementId: row.id,
+            data: photo,
+          });
+        }
         await addAudit(
           transaction,
           access.profile.familyId,
@@ -501,6 +693,53 @@ export function createHealthRouter(database: Database) {
         return [row];
       });
       response.status(201).json(created);
+    }),
+  );
+
+  router.get(
+    "/children/:cid/growth/:mid/photo",
+    handler(async (request, response) => {
+      const userId = sessionUserId(response);
+      if (!userId) {
+        sendError(response, 401, "UNAUTHENTICATED", "Authentication required.");
+        return;
+      }
+      const cid = routeParam(request, "cid");
+      const mid = routeParam(request, "mid");
+      if (
+        !UuidSchema.safeParse(cid).success ||
+        !UuidSchema.safeParse(mid).success
+      ) {
+        sendError(response, 400, "VALIDATION_ERROR", "Invalid resource ID.");
+        return;
+      }
+      const access = await getAccess(database, cid, userId);
+      if (!access) {
+        sendError(response, 404, "NOT_FOUND", "Child not found.");
+        return;
+      }
+      const [photo] = await database
+        .select({ data: growthPhoto.data })
+        .from(growthPhoto)
+        .innerJoin(
+          growthMeasurement,
+          eq(growthPhoto.measurementId, growthMeasurement.id),
+        )
+        .where(
+          and(
+            eq(growthMeasurement.id, mid),
+            eq(growthMeasurement.childId, cid),
+            eq(growthMeasurement.familyId, access.profile.familyId),
+            isNull(growthMeasurement.deletedAt),
+          ),
+        )
+        .limit(1);
+      if (!photo) {
+        sendError(response, 404, "NOT_FOUND", "Photo not found.");
+        return;
+      }
+      response.set("Cache-Control", "private, no-store");
+      response.type("image/jpeg").send(Buffer.from(photo.data, "base64"));
     }),
   );
 
@@ -678,6 +917,7 @@ export function createHealthRouter(database: Database) {
             updatedBy: userId,
             version: sql`${growthMeasurement.version} + 1`,
             rev,
+            hasPhoto: false,
           })
           .where(
             and(
@@ -689,6 +929,9 @@ export function createHealthRouter(database: Database) {
           )
           .returning();
         if (!removed) throw new Error("Growth measurement delete lost a race.");
+        await transaction
+          .delete(growthPhoto)
+          .where(eq(growthPhoto.measurementId, mid));
         await addAudit(
           transaction,
           access.profile.familyId,

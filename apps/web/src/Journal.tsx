@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { estimateServerClockOffsetMs } from "@familycradle/shared";
+import { GrowthMeasurements } from "./GrowthMeasurements";
 
-type Child = { id: string; name: string; dateOfBirth: string };
+type Child = {
+  id: string;
+  name: string;
+  dateOfBirth: string;
+  sex: "male" | "female";
+};
 type Entry = {
   id: string;
   type: string;
@@ -129,7 +135,15 @@ export function Journal({
   }>;
 }) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<"record" | "history">("record");
+  const [activeTab, setActiveTab] = useState<"record" | "history" | "insights">(
+    "record",
+  );
+  const [insightsChildId, setInsightsChildId] = useState(children[0]?.id ?? "");
+  const [historyView, setHistoryView] = useState<"timeline" | "measurements">(
+    "timeline",
+  );
+  const [historyChildId, setHistoryChildId] = useState(children[0]?.id ?? "");
+  const [growthRevision, setGrowthRevision] = useState(0);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [deletedEntries, setDeletedEntries] = useState<Entry[]>([]);
   const [selectedChildren, setSelectedChildren] = useState<string[]>(
@@ -228,6 +242,15 @@ export function Journal({
         );
         syncRevision.current = Math.max(previousRevision, response.rev);
         changed ||= response.items.length > 0;
+        if (
+          response.items.some(
+            (item) =>
+              item.table === "growth_measurement" ||
+              item.table === "growth_target",
+          )
+        ) {
+          setGrowthRevision((value) => value + 1);
+        }
         if (response.hasMore && response.rev <= previousRevision) {
           throw new Error("Family sync pagination did not advance.");
         }
@@ -903,6 +926,10 @@ export function Journal({
   const selectedChild = children.find(
     (child) => child.id === selectedChildren[0],
   );
+  const insightsChild =
+    children.find((child) => child.id === insightsChildId) ?? children[0];
+  const historyChild =
+    children.find((child) => child.id === historyChildId) ?? children[0];
   const mpasiUnderSixMonths = (() => {
     if (!selectedChild) return false;
     const dob = new Date(`${selectedChild.dateOfBirth}T00:00:00`);
@@ -952,7 +979,13 @@ export function Journal({
   return (
     <section
       className="journal"
-      aria-label={t(activeTab === "record" ? "newRecord" : "history")}
+      aria-label={t(
+        activeTab === "record"
+          ? "newRecord"
+          : activeTab === "history"
+            ? "history"
+            : "insights",
+      )}
     >
       <div
         className="journal-tabs"
@@ -970,28 +1003,118 @@ export function Journal({
         <button
           aria-pressed={activeTab === "history"}
           className="journal-tab"
-          onClick={() => setActiveTab("history")}
+          onClick={() => {
+            if (activeTab !== "history") setHistoryView("timeline");
+            setActiveTab("history");
+          }}
           type="button"
         >
           {t("history")}
         </button>
         <button
-          className="journal-tab journal-tab-disabled"
-          disabled
-          title={t("phase2Coming")}
+          aria-pressed={activeTab === "insights"}
+          className="journal-tab"
+          onClick={() => setActiveTab("insights")}
           type="button"
         >
-          <span>{t("insights")}</span>
-          <small>{t("phase2Coming")}</small>
+          {t("insights")}
         </button>
       </div>
-      <div className="journal-heading">
+      {activeTab === "history" && (
+        <div
+          className="journal-tabs"
+          role="group"
+          aria-label={t("historySections")}
+        >
+          <button
+            type="button"
+            className="journal-tab"
+            aria-pressed={historyView === "timeline"}
+            onClick={() => setHistoryView("timeline")}
+          >
+            {t("timeline")}
+          </button>
+          <button
+            type="button"
+            className="journal-tab"
+            aria-pressed={historyView === "measurements"}
+            onClick={() => setHistoryView("measurements")}
+          >
+            {t("historyMeasurements")}
+          </button>
+        </div>
+      )}
+      {activeTab === "insights" && (
+        <div className="insights-content">
+          <div className="journal-heading">
+            <div>
+              <p className="portal-kicker">{t("insights")}</p>
+              <h2>{t("growthTitle")}</h2>
+            </div>
+            {insightsChild && (
+              <label className="insights-child">
+                {t("healthChild")}
+                <select
+                  value={insightsChild.id}
+                  onChange={(event) =>
+                    setInsightsChildId(event.currentTarget.value)
+                  }
+                >
+                  {children.map((child) => (
+                    <option key={child.id} value={child.id}>
+                      {child.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <p className="health-review-warning">{t("insightsUnavailable")}</p>
+          {insightsChild ? (
+            <GrowthMeasurements
+              child={insightsChild}
+              revision={growthRevision}
+              showTrends
+            />
+          ) : (
+            <p className="portal-muted">{t("insightsNoChild")}</p>
+          )}
+        </div>
+      )}
+      <div className="journal-heading" hidden={activeTab === "insights"}>
         <div>
           <p className="portal-kicker">
             {t(activeTab === "record" ? "today" : "history")}
           </p>
-          <h2>{t(activeTab === "record" ? "newRecord" : "timeline")}</h2>
+          <h2>
+            {t(
+              activeTab === "record"
+                ? "newRecord"
+                : historyView === "timeline"
+                  ? "timeline"
+                  : "historyMeasurements",
+            )}
+          </h2>
         </div>
+        {activeTab === "history" &&
+          historyView === "measurements" &&
+          historyChild && (
+            <label className="insights-child">
+              {t("healthChild")}
+              <select
+                value={historyChild.id}
+                onChange={(event) =>
+                  setHistoryChildId(event.currentTarget.value)
+                }
+              >
+                {children.map((child) => (
+                  <option key={child.id} value={child.id}>
+                    {child.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         <div className="journal-day-picker" hidden={activeTab !== "record"}>
           <button
             className="journal-day-button"
@@ -1035,46 +1158,58 @@ export function Journal({
             </svg>
           </button>
         </div>
-        {children.length > 1 && (
-          <fieldset className="journal-child-select">
-            <legend>{t("logForChildren")}</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={selectedChildren.length === children.length}
-                onChange={(event) =>
-                  setSelectedChildren(
-                    event.target.checked
-                      ? children.map((child) => child.id)
-                      : children[0]
-                        ? [children[0].id]
-                        : [],
-                  )
-                }
-              />
-              {t("allChildren")}
-            </label>
-            {children.map((child) => (
-              <label key={child.id}>
+        {children.length > 1 &&
+          (activeTab !== "history" || historyView === "timeline") && (
+            <fieldset className="journal-child-select">
+              <legend>{t("logForChildren")}</legend>
+              <label>
                 <input
                   type="checkbox"
-                  checked={selectedChildren.includes(child.id)}
+                  checked={selectedChildren.length === children.length}
                   onChange={(event) =>
-                    setSelectedChildren((current) =>
+                    setSelectedChildren(
                       event.target.checked
-                        ? [...new Set([...current, child.id])]
-                        : current.length <= 1
-                          ? current
-                          : current.filter((id) => id !== child.id),
+                        ? children.map((child) => child.id)
+                        : children[0]
+                          ? [children[0].id]
+                          : [],
                     )
                   }
                 />
-                {child.name}
+                {t("allChildren")}
               </label>
-            ))}
-          </fieldset>
-        )}
+              {children.map((child) => (
+                <label key={child.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedChildren.includes(child.id)}
+                    onChange={(event) =>
+                      setSelectedChildren((current) =>
+                        event.target.checked
+                          ? [...new Set([...current, child.id])]
+                          : current.length <= 1
+                            ? current
+                            : current.filter((id) => id !== child.id),
+                      )
+                    }
+                  />
+                  {child.name}
+                </label>
+              ))}
+            </fieldset>
+          )}
       </div>
+      {activeTab === "history" &&
+        historyView === "measurements" &&
+        (historyChild ? (
+          <GrowthMeasurements
+            child={historyChild}
+            revision={growthRevision}
+            historyOnly
+          />
+        ) : (
+          <p className="portal-muted">{t("insightsNoChild")}</p>
+        ))}
       <div className="journal-actions" hidden={activeTab !== "record"}>
         {types.map((type) => (
           <button
@@ -1229,7 +1364,7 @@ export function Journal({
           </button>
         </p>
       )}
-      {message && (
+      {message && activeTab !== "insights" && (
         <p role="status" className="portal-message">
           {message}
           {recentlyDeleted && (
@@ -2019,7 +2154,10 @@ export function Journal({
           </strong>
         </span>
       </div>
-      <div className="journal-filters" hidden={activeTab !== "history"}>
+      <div
+        className="journal-filters"
+        hidden={activeTab !== "history" || historyView !== "timeline"}
+      >
         <div>
           {types.map((type) => (
             <button
@@ -2047,7 +2185,10 @@ export function Journal({
           {newestFirst ? t("oldestFirst") : t("newestFirst")}
         </button>
       </div>
-      <div className="journal-history-groups" hidden={activeTab !== "history"}>
+      <div
+        className="journal-history-groups"
+        hidden={activeTab !== "history" || historyView !== "timeline"}
+      >
         {historyGroups.length === 0 && (
           <p className="portal-muted">{t("noEntries")}</p>
         )}
@@ -2109,7 +2250,10 @@ export function Journal({
         ))}
       </div>
       {deletedEntries.length > 0 && (
-        <div className="journal-deleted" hidden={activeTab !== "history"}>
+        <div
+          className="journal-deleted"
+          hidden={activeTab !== "history" || historyView !== "timeline"}
+        >
           <h3>{t("recentlyDeleted")}</h3>
           <ul>
             {deletedEntries.map((entry) => (

@@ -1120,18 +1120,17 @@ See Appendix F. Each flag has `code`, `severity` (`info` / `watch` / `consult`),
 | P1.3 Logging core | `log_entry` service + audit log + rev counter, timers (sleep, DBF, pumping) server-side, entry sheets for all modules (bottle, DBF, diaper, sleep, MPASI incl. food catalog and allergy watch, pumping, medicine), multi-child "log for both", Today screen, Timeline, undo/restore |
 | P1.4 Health records | Growth entry and list, vaccine schedule generation (Appendix A) and management, milestone checklist (CDC seed), milk target engine (Appendix B), wake window suggestion (Appendix C), diaper color notes |
 | P1.5 PWA and sync | Polling sync with delta endpoint, Dexie offline queue and replay, conflict handling, service worker, install prompt, night mode, language toggle (ID/EN/Mixed) |
-| P1.6 Hardening and launch | Full permission matrix tests, E2E tests, accessibility pass, privacy/terms placeholder pages, account & family deletion + purge job, Cloud Run deploy in `asia-southeast3`, runbook |
 
 **Phase 1 Definition of Done**
 - [ ] A new user can sign up, verify email, create a family, add a child, invite a caregiver and a second parent with codes.
 - [ ] All 10 modules support their specified create/update/delete/restore or status-update operations for Mom, Dad and Caregiver (Vaksin and Milestone follow their module-specific rules), and each entry shows who logged it.
 - [ ] A timer started on device A shows on device B within 6 s and can be stopped from device B with correct duration.
 - [ ] Logging works offline and syncs correctly when back online; conflicts handled per BR-SYNC-05.
-- [ ] Caregiver cannot access any parent-only endpoint (automated tests for every route).
+- [x] Caregiver cannot access any parent-only endpoint (automated tests for every route).
 - [ ] Milk target, vaccine statuses and wake windows match unit-test fixtures.
 - [ ] Language toggle (3 modes) and night mode work across all screens.
-- [ ] Lighthouse PWA installable, accessibility ≥ 95; `npm audit` no high/critical.
-- [ ] Deployed to Cloud Run with secrets from Secret Manager; purge job scheduled.
+- [x] Lighthouse PWA installable, accessibility ≥ 95; `npm audit` no high/critical.
+- [x] Deployed to Cloud Run with secrets from Secret Manager; purge job scheduled.
 
 ### Phase 2: Analytics and AI
 | Milestone | Scope |

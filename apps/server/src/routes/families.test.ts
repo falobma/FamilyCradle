@@ -10,7 +10,7 @@ import { migrate } from "drizzle-orm/libsql/migrator";
 import pino from "pino";
 import request from "supertest";
 import { createApp } from "../app.js";
-import { schema, user, userProfile } from "../db/schema.js";
+import { auditLog, family, schema, user, userProfile } from "../db/schema.js";
 import { createFamilyRouter } from "./families.js";
 
 const parentId = "019ac600-0000-7000-8000-000000000001";
@@ -177,6 +177,89 @@ describe("family onboarding API", () => {
       .set(asUser(secondUserId))
       .send({ targetRole: "parent" });
     expect(forbidden.status).toBe(403);
+  });
+
+  it("allows only parents to change AI consent and records each change", async () => {
+    const [profile] = await database
+      .select({ familyId: userProfile.lastActiveFamilyId })
+      .from(userProfile)
+      .where(eq(userProfile.userId, parentId));
+    const familyId = profile?.familyId;
+    expect(familyId).toBeTruthy();
+
+    const path = `/api/families/${familyId}/ai-consent`;
+    expect((await request(app).put(path).send({ enabled: true })).status).toBe(
+      401,
+    );
+    expect(
+      (
+        await request(app)
+          .put(path)
+          .set(asUser(secondUserId))
+          .send({ enabled: true })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(app)
+          .put(path)
+          .set(asUser("019ac600-0000-7000-8000-000000000099"))
+          .send({ enabled: true })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await request(app)
+          .put(path)
+          .set(asUser(parentId))
+          .send({ enabled: "yes" })
+      ).status,
+    ).toBe(400);
+
+    const before = await database
+      .select()
+      .from(family)
+      .where(eq(family.id, familyId!))
+      .get();
+    expect(before?.aiConsent).toBe(false);
+    const enabled = await request(app)
+      .put(path)
+      .set(asUser(parentId))
+      .send({ enabled: true });
+    expect(enabled.status).toBe(200);
+    expect(enabled.body).toMatchObject({
+      enabled: true,
+      changedBy: parentId,
+      changedAt: expect.any(String),
+      version: before!.version + 1,
+      rev: before!.rev + 1,
+    });
+
+    const repeated = await request(app)
+      .put(path)
+      .set(asUser(parentId))
+      .send({ enabled: true });
+    expect(repeated.body).toEqual(enabled.body);
+
+    const withdrawn = await request(app)
+      .put(path)
+      .set(asUser(parentId))
+      .send({ enabled: false });
+    expect(withdrawn.status).toBe(200);
+    expect(withdrawn.body).toMatchObject({
+      enabled: false,
+      changedBy: parentId,
+      version: enabled.body.version + 1,
+      rev: enabled.body.rev + 1,
+    });
+    const audit = await database
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.familyId, familyId!));
+    expect(audit.map((item) => JSON.parse(item.changes))).toEqual([
+      { aiConsent: true },
+      { aiConsent: false },
+    ]);
   });
 
   it("validates child profiles and supports parent-only soft-delete restore", async () => {

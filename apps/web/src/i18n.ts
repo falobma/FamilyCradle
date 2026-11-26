@@ -86,6 +86,71 @@ const resources = {
       journalSections: "Bagian jurnal",
       newRecord: "Catat baru",
       insights: "Wawasan",
+      insightsUnavailable:
+        "Rentang target dimasukkan oleh keluarga berdasarkan arahan tenaga kesehatan, bukan standar pertumbuhan. Wawasan AI belum tersedia. Konsultasikan pertumbuhan anak dengan dokter atau bidan.",
+      insightsNoChild:
+        "Tambahkan profil anak di pengaturan keluarga untuk mencatat pengukuran.",
+      noGrowthMeasurements: "Belum ada pengukuran yang dicatat.",
+      growthTrends: "Tren pertumbuhan",
+      growthTrendsExplanation:
+        "Grafik menampilkan pengukuran keluarga; area berarsir menunjukkan rentang dari tenaga kesehatan pada tanggal target saja. Rentang tidak berlaku untuk tanggal lain. Ini bukan penilaian medis.",
+      growthReferenceExplanation:
+        "Titik biru kosong menunjukkan persentil 3 dan 97 dari referensi penduduk Indonesia untuk {{sex}}, usia 0–2 tahun. Garis hijau putus-putus menghubungkan titik persentil 50 (P50) sebagai panduan visual saja; nilai di antara titik tidak berasal dari data sumber. Ini bukan target atau diagnosis dan belum ditinjau secara klinis. Tanggal diperkirakan dari usia kronologis (365,25 hari per tahun), bukan usia koreksi. Metode pengukuran panjang pada data sumber belum dipastikan. Diskusikan hasil dengan tenaga kesehatan.",
+      growthReferenceP50: "Referensi P50",
+      growthPhotoChoose: "Ambil atau pilih foto (opsional)",
+      growthPhotoHint:
+        "Foto dibagikan dengan keluarga, diperkecil sebelum disimpan, dan maksimal 20 MB sebelum diperkecil.",
+      growthPhotoSelected: "Foto dipilih: {{name}}",
+      growthPhotoInvalid:
+        "Foto tidak dapat diproses. Pilih gambar yang didukung hingga 20 MB.",
+      growthPhotoTitle: "Foto pengukuran",
+      growthPhotoAlt: "Foto yang ditambahkan ke pengukuran pertumbuhan",
+      growthPhotoView: "Lihat foto",
+      growthPhotoViewDate: "Lihat foto untuk {{date}}",
+      growthPhotoViewNumber: "Lihat foto {{number}} untuk {{date}}",
+      growthPhotoLoadError: "Foto tidak dapat dimuat.",
+      growthReferenceSource: "Sumber referensi:",
+      growthReferenceTable: "Lihat tabel titik referensi",
+      growthReferenceTableCaption: "Nilai referensi {{metric}} ({{unit}})",
+      growthReferenceAge: "Usia (tahun)",
+      growthTargets: "Target dari tenaga kesehatan",
+      growthTargetInstructions:
+        "Masukkan rentang yang diberikan dokter atau bidan untuk tanggal tertentu. Isi kedua batas setidaknya untuk berat atau panjang. Pengukuran dibandingkan hanya pada tanggal yang sama; jika ada beberapa, digunakan yang terakhir dicatat. Untuk mengubah target, hapus dan tambahkan kembali.",
+      growthTargetDate: "Tanggal target",
+      growthWeightMin: "Berat minimum (kg)",
+      growthWeightMax: "Berat maksimum (kg)",
+      growthLengthMin: "Panjang minimum (cm)",
+      growthLengthMax: "Panjang maksimum (cm)",
+      growthTargetSave: "Simpan target",
+      growthTargetSaved: "Target disimpan.",
+      growthTargetInvalid:
+        "Isi rentang yang lengkap dan valid: berat 0,4–25 kg atau panjang 30–110 cm, dengan batas minimum tidak melebihi maksimum.",
+      growthTargetPrecision:
+        "Gunakan maksimal 3 angka desimal untuk berat dan 1 untuk panjang.",
+      growthTargetConflict:
+        "Target untuk tanggal ini sudah ada. Hapus target lama sebelum menambahkan penggantinya.",
+      growthTargetRemove: "Hapus target",
+      growthTargetRemoveConfirm: "Hapus target untuk {{date}}?",
+      growthTargetRemoved: "Target dihapus.",
+      growthTargetRange: "Target {{date}}: {{min}}–{{max}} {{unit}}",
+      growthTargetNoMeasurement: "Belum ada pengukuran pada tanggal target.",
+      growthTargetWithin: "Pengukuran {{value}} {{unit}} berada dalam rentang.",
+      growthTargetBelow:
+        "Pengukuran {{value}} {{unit}} berada {{difference}} {{unit}} di bawah batas minimum.",
+      growthTargetAbove:
+        "Pengukuran {{value}} {{unit}} berada {{difference}} {{unit}} di atas batas maksimum.",
+      growthLatest: "Terbaru: {{value}} {{unit}} ({{date}})",
+      growthAge:
+        "Usia kronologis: {{months}} {{monthUnit}} {{days}} {{dayUnit}}",
+      growthAgeMonth_other: "bulan",
+      growthAgeDay_other: "hari",
+      growthAgeBeforeBirth:
+        "Usia tidak tersedia: tanggal sebelum tanggal lahir.",
+      growthChange: "Perubahan dari {{from}} ke {{to}}: {{value}} {{unit}}",
+      growthNeedTwo: "Tambahkan satu pengukuran lagi untuk melihat perubahan.",
+      growthNoMetric: "Belum ada ukuran untuk grafik ini.",
+      growthChartLabel: "Grafik pengukuran {{metric}} berdasarkan tanggal",
+      retry: "Coba lagi",
       phase2Coming: "Direncanakan untuk fase 2",
       recordsCount: "{{count}} catatan",
       recordDetails: "Aktivitas perawatan",
@@ -98,6 +163,20 @@ const resources = {
       paused: "Dijeda",
       duration: "Durasi",
       timeline: "Linimasa",
+      historyMeasurements: "Pengukuran",
+      historySections: "Bagian riwayat",
+      growthUpdated: "Pengukuran diperbarui.",
+      growthDeleted: "Pengukuran dihapus.",
+      growthDelete: "Hapus pengukuran",
+      growthDeleteConfirm: "Hapus pengukuran tanggal {{date}}?",
+      growthDeletePhotoConfirm:
+        "Hapus pengukuran tanggal {{date}}? Foto yang terlampir akan dihapus permanen.",
+      growthMeasurementConflict:
+        "Pengukuran telah berubah atau tidak tersedia. Muat ulang sebelum mencoba lagi.",
+      growthReloadDiscard: "Muat ulang dan buang perubahan",
+      growthRefreshFailed:
+        "Perubahan tersimpan, tetapi riwayat tidak dapat dimuat ulang. Coba lagi.",
+      growthPlaceUnspecified: "Tidak ditentukan",
       time: "Waktu",
       amountMl: "Jumlah (ml)",
       milkType: "Jenis susu",
@@ -429,6 +508,73 @@ const resources = {
       journalSections: "Journal sections",
       newRecord: "New record",
       insights: "Insights",
+      insightsUnavailable:
+        "Target ranges are entered by the family from a clinician's guidance, not a growth standard. AI insights are not available. Discuss your child's growth with a doctor or midwife.",
+      insightsNoChild:
+        "Add a child profile in family settings to record measurements.",
+      noGrowthMeasurements: "No measurements recorded yet.",
+      growthTrends: "Growth trends",
+      growthTrendsExplanation:
+        "Charts show family-recorded measurements; shaded marks show clinician-provided ranges on their target dates only. Ranges do not apply to other dates. This is not a medical assessment.",
+      growthReferenceExplanation:
+        "Hollow blue dots show the 3rd and 97th percentiles from an Indonesian population reference for {{sex}}, ages 0–2 years. The dashed green line connects the 50th percentile (P50) points as a visual guide only; values between points are not from the source data. These are not targets or diagnoses and have not been clinically reviewed. Dates are approximate, based on chronological age (365.25 days per year), not corrected age. The source's length measurement method has not been verified. Discuss results with a clinician.",
+      growthReferenceP50: "P50 reference",
+      growthPhotoChoose: "Take or choose a photo (optional)",
+      growthPhotoHint:
+        "Photos are shared with your family, resized before saving, and limited to 20 MB before resizing.",
+      growthPhotoSelected: "Selected photo: {{name}}",
+      growthPhotoInvalid:
+        "Could not process the photo. Choose a supported image up to 20 MB.",
+      growthPhotoTitle: "Measurement photo",
+      growthPhotoAlt: "Photo added to the growth measurement",
+      growthPhotoView: "View photo",
+      growthPhotoViewDate: "View photo for {{date}}",
+      growthPhotoViewNumber: "View photo {{number}} for {{date}}",
+      growthPhotoLoadError: "Could not load the photo.",
+      growthReferenceSource: "Reference source:",
+      growthReferenceTable: "View reference points table",
+      growthReferenceTableCaption: "{{metric}} reference values ({{unit}})",
+      growthReferenceAge: "Age (years)",
+      growthTargets: "Clinician-provided targets",
+      growthTargetInstructions:
+        "Enter the range your doctor or midwife gave for a specific date. Provide both bounds for at least weight or length. Only measurements on that date are compared; if there are several, the last recorded is used. To change a target, remove it and add a replacement.",
+      growthTargetDate: "Target date",
+      growthWeightMin: "Minimum weight (kg)",
+      growthWeightMax: "Maximum weight (kg)",
+      growthLengthMin: "Minimum length (cm)",
+      growthLengthMax: "Maximum length (cm)",
+      growthTargetSave: "Save target",
+      growthTargetSaved: "Target saved.",
+      growthTargetInvalid:
+        "Enter a complete valid range: weight 0.4–25 kg or length 30–110 cm, with the minimum no greater than the maximum.",
+      growthTargetPrecision:
+        "Use at most 3 decimal places for weight and 1 for length.",
+      growthTargetConflict:
+        "A target already exists for this date. Remove it before adding a replacement.",
+      growthTargetRemove: "Remove target",
+      growthTargetRemoveConfirm: "Remove the target for {{date}}?",
+      growthTargetRemoved: "Target removed.",
+      growthTargetRange: "Target {{date}}: {{min}}–{{max}} {{unit}}",
+      growthTargetNoMeasurement: "No measurement recorded on the target date.",
+      growthTargetWithin:
+        "The measurement of {{value}} {{unit}} is within the range.",
+      growthTargetBelow:
+        "The measurement of {{value}} {{unit}} is {{difference}} {{unit}} below the minimum.",
+      growthTargetAbove:
+        "The measurement of {{value}} {{unit}} is {{difference}} {{unit}} above the maximum.",
+      growthLatest: "Latest: {{value}} {{unit}} ({{date}})",
+      growthAge:
+        "Chronological age: {{months}} {{monthUnit}}, {{days}} {{dayUnit}}",
+      growthAgeMonth_one: "month",
+      growthAgeMonth_other: "months",
+      growthAgeDay_one: "day",
+      growthAgeDay_other: "days",
+      growthAgeBeforeBirth: "Age unavailable: date is before birth.",
+      growthChange: "Change from {{from}} to {{to}}: {{value}} {{unit}}",
+      growthNeedTwo: "Add another measurement to see the change.",
+      growthNoMetric: "No measurements for this chart yet.",
+      growthChartLabel: "{{metric}} measurements by date",
+      retry: "Try again",
       phase2Coming: "Coming in Phase 2",
       recordsCount: "{{count}} records",
       recordDetails: "Care activity",
@@ -441,6 +587,20 @@ const resources = {
       paused: "Paused",
       duration: "Duration",
       timeline: "Timeline",
+      historyMeasurements: "Measurements",
+      historySections: "History sections",
+      growthUpdated: "Measurement updated.",
+      growthDeleted: "Measurement deleted.",
+      growthDelete: "Delete measurement",
+      growthDeleteConfirm: "Delete the measurement for {{date}}?",
+      growthDeletePhotoConfirm:
+        "Delete the measurement for {{date}}? Its attached photo will be permanently deleted.",
+      growthMeasurementConflict:
+        "This measurement changed or is no longer available. Reload the records before trying again.",
+      growthReloadDiscard: "Reload and discard changes",
+      growthRefreshFailed:
+        "The change was saved, but the history could not be refreshed. Try again.",
+      growthPlaceUnspecified: "Not specified",
       time: "Time",
       amountMl: "Amount (ml)",
       milkType: "Milk type",
@@ -770,6 +930,73 @@ const resources = {
       journalSections: "Journal sections",
       newRecord: "New record",
       insights: "Insights",
+      insightsUnavailable:
+        "Target ranges are entered by the family from a clinician's guidance, not a growth standard. AI insights are not available. Discuss your child's growth with a doctor or midwife.",
+      insightsNoChild:
+        "Add a child profile in family settings to record measurements.",
+      noGrowthMeasurements: "No measurements recorded yet.",
+      growthTrends: "Growth trends",
+      growthTrendsExplanation:
+        "Charts show family-recorded measurements; shaded marks show clinician-provided ranges on their target dates only. Ranges do not apply to other dates. This is not a medical assessment.",
+      growthReferenceExplanation:
+        "Hollow blue dots show the 3rd and 97th percentiles from an Indonesian population reference for {{sex}}, ages 0–2 years. The dashed green line connects the 50th percentile (P50) points as a visual guide only; values between points are not from the source data. These are not targets or diagnoses and have not been clinically reviewed. Dates are approximate, based on chronological age (365.25 days per year), not corrected age. The source's length measurement method has not been verified. Discuss results with a clinician.",
+      growthReferenceP50: "P50 reference",
+      growthPhotoChoose: "Take or choose a photo (optional)",
+      growthPhotoHint:
+        "Photos are shared with your family, resized before saving, and limited to 20 MB before resizing.",
+      growthPhotoSelected: "Selected photo: {{name}}",
+      growthPhotoInvalid:
+        "Could not process the photo. Choose a supported image up to 20 MB.",
+      growthPhotoTitle: "Measurement photo",
+      growthPhotoAlt: "Photo added to the growth measurement",
+      growthPhotoView: "View photo",
+      growthPhotoViewDate: "View photo for {{date}}",
+      growthPhotoViewNumber: "View photo {{number}} for {{date}}",
+      growthPhotoLoadError: "Could not load the photo.",
+      growthReferenceSource: "Reference source:",
+      growthReferenceTable: "View reference points table",
+      growthReferenceTableCaption: "{{metric}} reference values ({{unit}})",
+      growthReferenceAge: "Age (years)",
+      growthTargets: "Clinician-provided targets",
+      growthTargetInstructions:
+        "Enter the range your doctor or midwife gave for a specific date. Provide both bounds for at least weight or length. Only measurements on that date are compared; if there are several, the last recorded is used. To change a target, remove it and add a replacement.",
+      growthTargetDate: "Target date",
+      growthWeightMin: "Minimum weight (kg)",
+      growthWeightMax: "Maximum weight (kg)",
+      growthLengthMin: "Minimum length (cm)",
+      growthLengthMax: "Maximum length (cm)",
+      growthTargetSave: "Save target",
+      growthTargetSaved: "Target saved.",
+      growthTargetInvalid:
+        "Enter a complete valid range: weight 0.4–25 kg or length 30–110 cm, with the minimum no greater than the maximum.",
+      growthTargetPrecision:
+        "Use at most 3 decimal places for weight and 1 for length.",
+      growthTargetConflict:
+        "A target already exists for this date. Remove it before adding a replacement.",
+      growthTargetRemove: "Remove target",
+      growthTargetRemoveConfirm: "Remove the target for {{date}}?",
+      growthTargetRemoved: "Target removed.",
+      growthTargetRange: "Target {{date}}: {{min}}–{{max}} {{unit}}",
+      growthTargetNoMeasurement: "No measurement recorded on the target date.",
+      growthTargetWithin:
+        "The measurement of {{value}} {{unit}} is within the range.",
+      growthTargetBelow:
+        "The measurement of {{value}} {{unit}} is {{difference}} {{unit}} below the minimum.",
+      growthTargetAbove:
+        "The measurement of {{value}} {{unit}} is {{difference}} {{unit}} above the maximum.",
+      growthLatest: "Latest: {{value}} {{unit}} ({{date}})",
+      growthAge:
+        "Chronological age: {{months}} {{monthUnit}}, {{days}} {{dayUnit}}",
+      growthAgeMonth_one: "month",
+      growthAgeMonth_other: "months",
+      growthAgeDay_one: "day",
+      growthAgeDay_other: "days",
+      growthAgeBeforeBirth: "Age unavailable: date is before birth.",
+      growthChange: "Change from {{from}} to {{to}}: {{value}} {{unit}}",
+      growthNeedTwo: "Add another measurement to see the change.",
+      growthNoMetric: "No measurements for this chart yet.",
+      growthChartLabel: "{{metric}} measurements by date",
+      retry: "Try again",
       phase2Coming: "Coming in Phase 2",
       recordsCount: "{{count}} records",
       recordDetails: "Care activity",
@@ -782,6 +1009,20 @@ const resources = {
       paused: "Paused",
       duration: "Duration",
       timeline: "Timeline",
+      historyMeasurements: "Measurements",
+      historySections: "History sections",
+      growthUpdated: "Measurement updated.",
+      growthDeleted: "Measurement deleted.",
+      growthDelete: "Delete measurement",
+      growthDeleteConfirm: "Delete the measurement for {{date}}?",
+      growthDeletePhotoConfirm:
+        "Delete the measurement for {{date}}? Its attached photo will be permanently deleted.",
+      growthMeasurementConflict:
+        "This measurement changed or is no longer available. Reload the records before trying again.",
+      growthReloadDiscard: "Reload and discard changes",
+      growthRefreshFailed:
+        "The change was saved, but the history could not be refreshed. Try again.",
+      growthPlaceUnspecified: "Not specified",
       time: "Time",
       amountMl: "Amount (ml)",
       milkType: "Milk type",

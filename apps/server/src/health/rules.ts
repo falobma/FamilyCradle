@@ -1,3 +1,5 @@
+import { addOffset, ageMonths } from "@familycradle/shared";
+export { addOffset, ageMonths } from "@familycradle/shared";
 import {
   child,
   growthMeasurement,
@@ -13,10 +15,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 function parseDate(date: string): Date {
   return new Date(`${date.slice(0, 10)}T00:00:00.000Z`);
-}
-
-function dateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function differenceInCalendarDays(later: string, earlier: string): number {
@@ -38,34 +36,6 @@ type ChildProfile = Pick<
 
 type VaccineStatus =
   "skipped" | "done" | "upcoming" | "due_soon" | "due" | "late";
-
-export function addOffset(date: string, offset: string): string {
-  const parsed = /^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(-?\d+)D)?$/.exec(
-    offset,
-  );
-  if (!parsed) throw new Error(`Unsupported date offset: ${offset}`);
-
-  const result = parseDate(date);
-  const years = Number(parsed[1] ?? 0);
-  const months = Number(parsed[2] ?? 0) + years * 12;
-  const weeks = Number(parsed[3] ?? 0);
-  const days = Number(parsed[4] ?? 0) + weeks * 7;
-
-  if (months > 0) {
-    const targetMonth = result.getUTCMonth() + months;
-    const targetYear = result.getUTCFullYear() + Math.floor(targetMonth / 12);
-    const monthIndex = targetMonth % 12;
-    const day = result.getUTCDate();
-    result.setUTCDate(1);
-    result.setUTCFullYear(targetYear, monthIndex, 1);
-    const lastDay = new Date(
-      Date.UTC(targetYear, monthIndex + 1, 0),
-    ).getUTCDate();
-    result.setUTCDate(Math.min(day, lastDay));
-  }
-  result.setUTCDate(result.getUTCDate() + days);
-  return dateString(result);
-}
 
 export function correctedAgeDays(
   child: Pick<
@@ -92,17 +62,6 @@ function correctedBirthDate(
   const days = child.gestationalAgeDays ?? 0;
   const correction = weeks < 37 ? Math.max(0, 280 - (weeks * 7 + days)) : 0;
   return addOffset(child.dateOfBirth, `P${correction}D`);
-}
-
-export function ageMonths(birthDate: string, onDate: string): number {
-  const birth = parseDate(birthDate);
-  const current = parseDate(onDate);
-  let months =
-    (current.getUTCFullYear() - birth.getUTCFullYear()) * 12 +
-    current.getUTCMonth() -
-    birth.getUTCMonth();
-  if (dateString(current) < addOffset(birthDate, `P${months}M`)) months -= 1;
-  return Math.max(0, months);
 }
 
 export function vaccineStatus(

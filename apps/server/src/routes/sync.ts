@@ -12,6 +12,7 @@ import {
   familyMember,
   familyRevCounter,
   growthMeasurement,
+  growthTarget,
   logEntry,
   mpasiFood,
 } from "../db/schema.js";
@@ -20,6 +21,7 @@ type Db = ReturnType<typeof createDatabase>["db"];
 type SyncTable =
   | "log_entry"
   | "growth_measurement"
+  | "growth_target"
   | "child_vaccine"
   | "child_milestone"
   | "mpasi_food"
@@ -110,6 +112,7 @@ export function createSyncRouter(db: Db) {
       const [
         logs,
         growth,
+        targets,
         vaccines,
         milestones,
         foods,
@@ -130,6 +133,13 @@ export function createSyncRouter(db: Db) {
               eq(growthMeasurement.familyId, familyId),
               changed(growthMeasurement.rev),
             ),
+          )
+          .limit(PageSize + 1),
+        db
+          .select()
+          .from(growthTarget)
+          .where(
+            and(eq(growthTarget.familyId, familyId), changed(growthTarget.rev)),
           )
           .limit(PageSize + 1),
         db
@@ -176,6 +186,7 @@ export function createSyncRouter(db: Db) {
       const candidates = [
         ...itemsFor("log_entry", logs),
         ...itemsFor("growth_measurement", growth),
+        ...itemsFor("growth_target", targets),
         ...itemsFor("child_vaccine", vaccines),
         ...itemsFor("child_milestone", milestones),
         ...itemsFor("mpasi_food", foods),

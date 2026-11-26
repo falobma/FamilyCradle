@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { parseLocalizedDecimal } from "@familycradle/shared";
+import { healthApi as api } from "./healthApi";
+import { GrowthMeasurements } from "./GrowthMeasurements";
 
 type Child = {
   id: string;
   name: string;
+  sex: "male" | "female";
   dateOfBirth: string;
   birthWeightG: number;
   birthLengthMm: number | null;
@@ -15,27 +17,6 @@ type Child = {
   milkTargetManualMl: number | null;
   version: number;
 };
-type HealthErrorShape = {
-  error?: {
-    code?: string;
-    message?: string;
-    details?: { percentChange?: number; days?: number };
-  };
-};
-class HealthRequestError extends Error {
-  readonly code: string;
-  readonly details: { percentChange?: number; days?: number } | undefined;
-
-  constructor(
-    message: string,
-    code: string,
-    details?: { percentChange?: number; days?: number },
-  ) {
-    super(message);
-    this.code = code;
-    this.details = details;
-  }
-}
 type GrowthItem = {
   id: string;
   measuredAt: string;
@@ -164,32 +145,6 @@ function localDate() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-async function api<T>(
-  path: string,
-  method = "GET",
-  body?: unknown,
-): Promise<T> {
-  const options: RequestInit = { method, credentials: "same-origin" };
-  if (body !== undefined) {
-    options.headers = { "content-type": "application/json" };
-    options.body = JSON.stringify(body);
-  }
-  const response = await fetch(path, options);
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as HealthErrorShape | null;
-    throw new HealthRequestError(
-      payload?.error?.message ?? `Request failed (${response.status}).`,
-      payload?.error?.code ?? "",
-      payload?.error?.details,
-    );
-  }
-  return response.status === 204
-    ? (undefined as T)
-    : ((await response.json()) as T);
-}
-
 async function fetchHealthData(childId: string): Promise<HealthData> {
   const [summary, growth, vaccines, milestones] = await Promise.all([
     api<Summary>(`/api/children/${childId}/health-summary`),
@@ -198,16 +153,6 @@ async function fetchHealthData(childId: string): Promise<HealthData> {
     api<HealthData["milestones"]>(`/api/children/${childId}/milestones`),
   ]);
   return { summary, growth, vaccines, milestones };
-}
-
-function numericValue(value: FormDataEntryValue | null, label: string) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const parsed = parseLocalizedDecimal(raw);
-  if (parsed === null || parsed <= 0) {
-    throw new Error(`${label}: ${raw}`);
-  }
-  return parsed;
 }
 
 export function HealthRecords({ children, role, onChildUpdated }: Props) {
@@ -220,10 +165,6 @@ export function HealthRecords({ children, role, onChildUpdated }: Props) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [checkpoint, setCheckpoint] = useState<number | null>(null);
-  const [weightInput, setWeightInput] = useState("");
-  const [lengthInput, setLengthInput] = useState("");
-  const [headInput, setHeadInput] = useState("");
-  const [measurementDate, setMeasurementDate] = useState(localDate);
   const [customVaccineOpen, setCustomVaccineOpen] = useState(false);
   const [targetValue, setTargetValue] = useState("");
   const [milestoneDrafts, setMilestoneDrafts] = useState<
@@ -375,62 +316,6 @@ export function HealthRecords({ children, role, onChildUpdated }: Props) {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function saveGrowth(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedChildId) return;
-    const form = new FormData(event.currentTarget);
-    let payload: Record<string, unknown>;
-    try {
-      const weightKg = numericValue(form.get("weightKg"), t("weightKg"));
-      const lengthCm = numericValue(form.get("lengthCm"), t("lengthCm"));
-      const headCm = numericValue(form.get("headCm"), t("headCircumference"));
-      if (weightKg === null && lengthCm === null && headCm === null) {
-        throw new Error(t("growthNeedsMeasurement"));
-      }
-      payload = {
-        id: crypto.randomUUID(),
-        measuredAt: measurementDate,
-        weightG: weightKg === null ? null : Math.round(weightKg * 1000),
-        lengthMm: lengthCm === null ? null : Math.round(lengthCm * 10),
-        headCircMm: headCm === null ? null : Math.round(headCm * 10),
-        place: form.get("place") || null,
-        note: String(form.get("note") ?? "").trim() || null,
-      };
-    } catch (validationError) {
-      setError(
-        validationError instanceof Error
-          ? validationError.message
-          : t("requestError"),
-      );
-      return;
-    }
-    await perform(async () => {
-      try {
-        await api(`/api/children/${selectedChildId}/growth`, "POST", payload);
-      } catch (requestError) {
-        if (
-          requestError instanceof HealthRequestError &&
-          requestError.code === "CONFIRM_REQUIRED"
-        ) {
-          const percent = requestError.details?.percentChange ?? 0;
-          const days = requestError.details?.days ?? 0;
-          if (!window.confirm(t("growthConfirm", { percent, days }))) return;
-          await api(`/api/children/${selectedChildId}/growth`, "POST", {
-            ...payload,
-            confirmLargeChange: true,
-          });
-        } else {
-          throw requestError;
-        }
-      }
-      setWeightInput("");
-      setLengthInput("");
-      setHeadInput("");
-      setNotice(t("growthSaved"));
-      await loadHealth(selectedChildId);
-    });
   }
 
   async function updateVaccine(
@@ -943,117 +828,11 @@ export function HealthRecords({ children, role, onChildUpdated }: Props) {
               </div>
             </>
           )}
-          {activeTab === "growth" && (
-            <div className="health-card">
-              <h3>{t("growthTitle")}</h3>
-              <p>
-                {t("birthPoint")}: {data.growth.birthPoint.weightG} g
-              </p>
-              <form className="health-form" onSubmit={saveGrowth}>
-                <label>
-                  {t("measurementDate")}
-                  <input
-                    max={localDate()}
-                    min={selectedChild?.dateOfBirth}
-                    onChange={(event) =>
-                      setMeasurementDate(event.currentTarget.value)
-                    }
-                    required
-                    type="date"
-                    value={measurementDate}
-                  />
-                </label>
-                <label>
-                  {t("weightKg")}
-                  <input
-                    inputMode="decimal"
-                    name="weightKg"
-                    onChange={(event) =>
-                      setWeightInput(event.currentTarget.value)
-                    }
-                    placeholder="7,45"
-                    type="text"
-                    value={weightInput}
-                  />
-                </label>
-                <label>
-                  {t("lengthCm")}
-                  <input
-                    inputMode="decimal"
-                    name="lengthCm"
-                    onChange={(event) =>
-                      setLengthInput(event.currentTarget.value)
-                    }
-                    placeholder="65,0"
-                    type="text"
-                    value={lengthInput}
-                  />
-                </label>
-                <label>
-                  {t("headCircumference")}
-                  <input
-                    inputMode="decimal"
-                    name="headCm"
-                    onChange={(event) =>
-                      setHeadInput(event.currentTarget.value)
-                    }
-                    placeholder="42,0"
-                    type="text"
-                    value={headInput}
-                  />
-                </label>
-                <label>
-                  {t("measurementPlace")}
-                  <select defaultValue="home" name="place">
-                    <option value="home">{t("home")}</option>
-                    <option value="posyandu">Posyandu</option>
-                    <option value="clinic_doctor">{t("clinic")}</option>
-                    <option value="hospital">{t("hospital")}</option>
-                    <option value="other">{t("other")}</option>
-                  </select>
-                </label>
-                <label>
-                  {t("note")}
-                  <textarea maxLength={500} name="note" />
-                </label>
-                <button className="portal-primary" disabled={busy}>
-                  {t("saveMeasurement")}
-                </button>
-              </form>
-              <ul className="health-list">
-                {data.growth.items.map((item) => (
-                  <li key={item.id}>
-                    <strong>{item.measuredAt}</strong>
-                    <span>
-                      {item.weightG === null
-                        ? ""
-                        : `${(item.weightG / 1000).toFixed(2)} kg`}
-                      {item.lengthMm === null
-                        ? ""
-                        : ` · ${(item.lengthMm / 10).toFixed(1)} cm`}
-                      {item.headCircMm === null
-                        ? ""
-                        : ` · ${(item.headCircMm / 10).toFixed(1)} cm`}
-                    </span>
-                    {item.previousWeightDeltaG !== null && (
-                      <small>
-                        {t("growthDelta", {
-                          delta: item.previousWeightDeltaG,
-                          days: item.daysSincePrevious,
-                          perDay: item.averageWeightDeltaGPerDay ?? 0,
-                        })}
-                      </small>
-                    )}
-                    {item.note && <small>{item.note}</small>}
-                    <small>
-                      {t("createdBy")} {item.createdByName}
-                      {item.updatedByName !== item.createdByName &&
-                        ` · ${t("editedBy")} ${item.updatedByName}`}
-                    </small>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {activeTab === "growth" && selectedChild && (
+            <GrowthMeasurements
+              child={selectedChild}
+              onSaved={() => loadHealth(selectedChild.id)}
+            />
           )}
           {activeTab === "vaccines" && (
             <div className="health-card">

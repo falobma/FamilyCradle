@@ -419,6 +419,9 @@ export const growthMeasurement = sqliteTable(
       enum: ["home", "posyandu", "clinic_doctor", "hospital", "other"],
     }),
     note: text("note"),
+    hasPhoto: integer("has_photo", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id),
@@ -437,6 +440,48 @@ export const growthMeasurement = sqliteTable(
       table.measuredAt,
     ),
     index("growth_measurement_family_rev_idx").on(table.familyId, table.rev),
+  ],
+);
+
+export const growthPhoto = sqliteTable("growth_photo", {
+  measurementId: text("measurement_id")
+    .primaryKey()
+    .references(() => growthMeasurement.id, { onDelete: "cascade" }),
+  data: text("data").notNull(),
+});
+
+export const growthTarget = sqliteTable(
+  "growth_target",
+  {
+    id: text("id").primaryKey(),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => family.id, { onDelete: "cascade" }),
+    childId: text("child_id")
+      .notNull()
+      .references(() => child.id, { onDelete: "cascade" }),
+    targetDate: text("target_date").notNull(),
+    weightMinG: integer("weight_min_g"),
+    weightMaxG: integer("weight_max_g"),
+    lengthMinMm: integer("length_min_mm"),
+    lengthMaxMm: integer("length_max_mm"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id),
+    updatedBy: text("updated_by")
+      .notNull()
+      .references(() => user.id),
+    version: integer("version").notNull().default(1),
+    rev: integer("rev").notNull().default(1),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    deletedAt: text("deleted_at"),
+  },
+  (table) => [
+    uniqueIndex("growth_target_child_date_unique")
+      .on(table.childId, table.targetDate)
+      .where(sql`${table.deletedAt} is null`),
+    index("growth_target_family_rev_idx").on(table.familyId, table.rev),
   ],
 );
 
@@ -568,6 +613,8 @@ export const schema = {
   familyMember,
   familyRevCounter,
   growthMeasurement,
+  growthPhoto,
+  growthTarget,
   inviteRateLimit,
   logEntry,
   milestoneDefinition,

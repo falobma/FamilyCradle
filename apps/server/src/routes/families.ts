@@ -16,6 +16,7 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import type { createDatabase } from "../db/client.js";
 import {
+  auditLog,
   child,
   family,
   familyInvite,
@@ -43,6 +44,7 @@ const MemberRoleSchema = z.strictObject({ role: z.enum(["mom", "dad"]) });
 const ConfirmFamilyNameSchema = z.strictObject({
   confirmName: z.string().trim().min(1).max(60),
 });
+const AiConsentSchema = z.strictObject({ enabled: z.boolean() });
 
 function sessionUserId(response: Response): string | null {
   const session: unknown = response.locals.session;
@@ -280,6 +282,109 @@ export function createFamilyRouter(database: Database) {
       response.json({
         items: items.filter((item) => item.role !== "caregiver"),
       });
+    }),
+  );
+
+  router.put(
+    "/families/:fid/ai-consent",
+    route(async (request, response) => {
+      const userId = sessionUserId(response);
+      const familyId = routeParam(request, "fid");
+      if (!userId) {
+        sendError(response, 401, "UNAUTHENTICATED", "Authentication required.");
+        return;
+      }
+      if (!validParam(familyId)) {
+        sendError(response, 400, "VALIDATION_ERROR", "Invalid family ID.");
+        return;
+      }
+      const body = parseBody(request, response, AiConsentSchema);
+      if (!body) return;
+      const access = await getMembership(database, familyId, userId);
+      if (!access) {
+        sendError(response, 404, "NOT_FOUND", "Family not found.");
+        return;
+      }
+      if (access.member.role === "caregiver") {
+        sendError(response, 403, "FORBIDDEN", "Parent permission required.");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const result = await database.transaction(async (transaction) => {
+        const [changed] = await transaction
+          .update(family)
+          .set({
+            aiConsent: body.enabled,
+            aiConsentBy: userId,
+            aiConsentAt: now,
+            updatedAt: now,
+            updatedBy: userId,
+            version: sql`${family.version} + 1`,
+          })
+          .where(
+            and(
+              eq(family.id, familyId),
+              isNull(family.deletedAt),
+              eq(family.aiConsent, !body.enabled),
+              sql`exists (select 1 from ${familyMember} where ${familyMember.familyId} = ${family.id} and ${familyMember.userId} = ${userId} and ${familyMember.removedAt} is null and ${familyMember.role} in ('mom', 'dad'))`,
+            ),
+          )
+          .returning();
+        if (!changed) {
+          const currentAccess = await transaction
+            .select({ member: familyMember, family })
+            .from(familyMember)
+            .innerJoin(family, eq(familyMember.familyId, family.id))
+            .where(
+              and(
+                eq(familyMember.familyId, familyId),
+                eq(familyMember.userId, userId),
+                isNull(familyMember.removedAt),
+                isNull(family.deletedAt),
+              ),
+            )
+            .get();
+          if (!currentAccess) return { status: 404 as const };
+          if (currentAccess.member.role === "caregiver")
+            return { status: 403 as const };
+          return { status: 200 as const, family: currentAccess.family };
+        }
+
+        const rev = await bumpFamilyRev(transaction, familyId);
+        const [updated] = await transaction
+          .update(family)
+          .set({ rev })
+          .where(eq(family.id, familyId))
+          .returning();
+        if (!updated)
+          throw new Error("Family disappeared during consent update.");
+        await transaction.insert(auditLog).values({
+          id: createUuidV7(),
+          familyId,
+          actorUserId: userId,
+          entityType: "family",
+          entityId: familyId,
+          action: "update",
+          changes: JSON.stringify({ aiConsent: body.enabled }),
+          at: now,
+        });
+        return { status: 200 as const, family: updated };
+      });
+
+      if (result.status === 404) {
+        sendError(response, 404, "NOT_FOUND", "Family not found.");
+      } else if (result.status === 403) {
+        sendError(response, 403, "FORBIDDEN", "Parent permission required.");
+      } else {
+        response.json({
+          enabled: result.family.aiConsent,
+          changedBy: result.family.aiConsentBy,
+          changedAt: result.family.aiConsentAt,
+          version: result.family.version,
+          rev: result.family.rev,
+        });
+      }
     }),
   );
 

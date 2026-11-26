@@ -766,6 +766,26 @@
 .journal [hidden] {
   display: none !important;
 }
+.insights-content {
+  display: grid;
+  gap: 1rem;
+}
+.insights-child {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--color-cocoa-800);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.insights-child select {
+  min-height: 2.7rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-cocoa-200);
+  border-radius: 0.7rem;
+  background: white;
+  color: var(--color-cocoa-900);
+  font: inherit;
+}
 .journal-heading,
 .journal-history-day-heading {
   display: flex;
@@ -1287,6 +1307,72 @@
   margin: 0;
   color: var(--color-cocoa-700);
   line-height: 1.5;
+}
+.growth-trends {
+  display: grid;
+  gap: 0.8rem;
+  min-width: 0;
+}
+.growth-trend-card {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--color-cocoa-200);
+  border-radius: 0.8rem;
+  background: #fffdfa;
+}
+.growth-trend-card h4 {
+  margin: 0;
+}
+.growth-trend-chart {
+  min-width: 0;
+}
+.growth-photo-dialog {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+.growth-photo-dialog img {
+  max-width: 100%;
+  max-height: 65vh;
+  object-fit: contain;
+}
+.growth-photo-thumbnail {
+  display: block;
+  max-width: 100px;
+  max-height: 80px;
+  object-fit: cover;
+}
+.growth-photo-preview {
+  display: grid;
+  gap: 0.3rem;
+  pointer-events: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--color-cocoa-200);
+  background: white;
+  color: var(--color-cocoa-900);
+  cursor: pointer;
+}
+.growth-photo-previews {
+  display: flex;
+  max-width: 200px;
+  max-height: 160px;
+  overflow: auto;
+  pointer-events: auto;
+}
+.growth-reference-table-wrap {
+  overflow-x: auto;
+}
+.growth-reference-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.growth-reference-table th,
+.growth-reference-table td {
+  padding: 0.4rem;
+  border-bottom: 1px solid var(--color-cocoa-200);
 }
 .health-progress {
   height: 0.65rem;
