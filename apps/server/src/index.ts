@@ -1,9 +1,9 @@
-import { Resend } from "resend";
 import { toNodeHandler } from "better-auth/node";
 import pino from "pino";
 import { Router } from "express";
 import { createAuth } from "./auth.js";
 import { loadEnvironmentFile, readEnvironment } from "./config.js";
+import { createEmailTransport } from "./email.js";
 import { createApp } from "./app.js";
 import { createDatabase } from "./db/client.js";
 import { requireSession } from "./middleware/require-session.js";
@@ -19,7 +19,7 @@ const database = createDatabase(environment);
 const auth = createAuth(
   environment,
   database.db,
-  new Resend(environment.RESEND_API_KEY),
+  createEmailTransport(environment),
   logger,
 );
 const apiRouter = Router();
@@ -28,6 +28,7 @@ apiRouter.use(createLogRouter(database.db));
 apiRouter.use(createHealthRouter(database.db));
 apiRouter.use(createSyncRouter(database.db));
 const app = createApp({
+  appOrigin: environment.APP_URL,
   apiAuthMiddleware: requireSession(auth),
   apiRouter,
   authHandler: toNodeHandler(auth),

@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import { pinoHttp } from "pino-http";
 
 export interface AppDependencies {
+  appOrigin: string;
   checkDatabase: () => Promise<void>;
   apiAuthMiddleware?: RequestHandler;
   apiRouter?: Router;
@@ -19,6 +20,7 @@ export interface AppDependencies {
 }
 
 export function createApp({
+  appOrigin,
   checkDatabase,
   apiAuthMiddleware,
   apiRouter,
@@ -28,6 +30,7 @@ export function createApp({
   trustedProxies = [],
 }: AppDependencies) {
   const app = express();
+  const allowedAppOrigin = new URL(appOrigin).origin;
   if (trustedProxies.length > 0) {
     app.set("trust proxy", trustedProxies);
   }
@@ -79,6 +82,21 @@ export function createApp({
   if (apiAuthMiddleware) {
     app.use("/api", apiAuthMiddleware);
   }
+  app.use("/api", (request, response, next) => {
+    if (
+      ["POST", "PUT", "PATCH", "DELETE"].includes(request.method) &&
+      request.get("origin") !== allowedAppOrigin
+    ) {
+      response.status(403).json({
+        error: {
+          code: "FORBIDDEN",
+          message: "Request origin is not allowed.",
+        },
+      });
+      return;
+    }
+    next();
+  });
   if (apiRouter) {
     app.use("/api", apiRouter);
   }

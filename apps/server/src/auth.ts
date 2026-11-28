@@ -4,7 +4,6 @@ import { betterAuth } from "better-auth";
 import { haveIBeenPwned } from "better-auth/plugins";
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { lte, sql } from "drizzle-orm";
-import type { Resend } from "resend";
 import type { Logger } from "pino";
 import type { Environment } from "./config.js";
 import type { createDatabase } from "./db/client.js";
@@ -12,6 +11,14 @@ import { authEmailRateLimit, familyAuthSchema } from "./db/schema.js";
 import { createUserProfile } from "./db/user-profile.js";
 
 type Database = ReturnType<typeof createDatabase>["db"];
+type EmailTransport = {
+  sendMail: (message: {
+    from: string;
+    to: string;
+    subject: string;
+    text: string;
+  }) => Promise<unknown>;
+};
 type SyntheticUserParameters = {
   coreFields: {
     name: string;
@@ -65,7 +72,7 @@ function localizedEmail(
 export function createAuth(
   environment: Environment,
   database: Database,
-  resend: Resend,
+  emailTransport: EmailTransport,
   logger: Logger,
 ) {
   async function sendAuthEmail(
@@ -75,18 +82,12 @@ export function createAuth(
     acceptLanguage: string | null,
   ) {
     const message = localizedEmail(kind, url, acceptLanguage);
-    const { error } = await resend.emails.send({
-      from: environment.EMAIL_FROM,
+    await emailTransport.sendMail({
+      from: `FamilyCradle <${environment.SMTP_USER}>`,
       to,
       subject: message.subject,
       text: message.body,
     });
-    if (error) {
-      logger.error(
-        { provider: "resend", code: error.name, statusCode: error.statusCode },
-        "Authentication email delivery failed; Resend rejected the request",
-      );
-    }
   }
 
   function dispatchAuthEmail(
@@ -97,8 +98,19 @@ export function createAuth(
   ) {
     void sendAuthEmail(to, kind, url, acceptLanguage).catch(
       (error: unknown) => {
+        const code =
+          typeof error === "object" &&
+          error !== null &&
+          "code" in error &&
+          typeof error.code === "string"
+            ? error.code
+            : undefined;
         logger.error(
-          { errorType: error instanceof Error ? error.name : "UnknownError" },
+          {
+            provider: "gmail-smtp",
+            ...(code ? { code } : {}),
+            errorType: error instanceof Error ? error.name : "UnknownError",
+          },
           "Authentication email delivery failed; the user can request another email",
         );
       },

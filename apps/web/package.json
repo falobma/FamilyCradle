@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run src/growth-trends.test.ts"
+    "test": "vitest run src/growth-trends.test.ts src/journal.test.ts"
   },
   "dependencies": {
     "@familycradle/shared": "*",

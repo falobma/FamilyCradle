@@ -12,10 +12,17 @@ const languages = [
 function App() {
   const { i18n, t } = useTranslation();
   const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [view, setView] = useState<"landing" | "account" | "today" | "settings">(
-    "landing",
+  const [view, setView] = useState<
+    "landing" | "account" | "today" | "settings" | "reset-password"
+  >(() =>
+    window.location.pathname === "/reset-password"
+      ? "reset-password"
+      : "landing",
   );
   const [signedIn, setSignedIn] = useState(false);
+  const [resetToken] = useState(() =>
+    new URLSearchParams(window.location.search).get("token"),
+  );
 
   useEffect(() => {
     document.documentElement.lang =
@@ -35,16 +42,22 @@ function App() {
         const isSignedIn = Boolean(session?.user);
         setSignedIn(isSignedIn);
         setView((current) =>
-          isSignedIn
-            ? "today"
-            : current === "account"
-              ? "account"
-              : "landing",
+          current === "reset-password"
+            ? current
+            : isSignedIn
+              ? "today"
+              : current === "account"
+                ? "account"
+                : "landing",
         );
       })
       .catch(() => {
         setSignedIn(false);
-        setView((current) => (current === "account" ? "account" : "landing"));
+        setView((current) =>
+          current === "account" || current === "reset-password"
+            ? current
+            : "landing",
+        );
       });
   }, []);
 
@@ -57,11 +70,11 @@ function App() {
     setSignedIn(isSignedIn);
     setView((current) =>
       isSignedIn
-        ? current === "settings"
-          ? "settings"
+        ? current === "settings" || current === "reset-password"
+          ? current
           : "today"
-        : current === "account"
-          ? "account"
+        : current === "account" || current === "reset-password"
+          ? current
           : "landing",
     );
   }, []);
@@ -150,15 +163,25 @@ function App() {
         </div>
       </header>
 
-      {view === "account" || view === "today" || view === "settings" ? (
+      {view === "account" ||
+      view === "today" ||
+      view === "settings" ||
+      view === "reset-password" ? (
         <FamilyPortal
           view={
-            view === "settings"
-              ? "settings"
-              : view === "today"
-                ? "today"
-                : "account"
+            view === "reset-password"
+              ? "reset-password"
+              : view === "settings"
+                ? "settings"
+                : view === "today"
+                  ? "today"
+                  : "account"
           }
+          resetToken={resetToken}
+          onReturnToSignIn={() => {
+            window.history.replaceState(null, "", "/");
+            setView("account");
+          }}
           onSessionChange={handleSessionChange}
         />
       ) : (

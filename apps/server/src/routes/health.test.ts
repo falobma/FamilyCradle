@@ -40,7 +40,9 @@ const client = createClient({
 });
 const database = drizzle(client, { schema });
 const app = createApp({
+  appOrigin: "http://localhost:5173",
   apiAuthMiddleware: (request, response, next) => {
+    request.headers.origin ??= "http://localhost:5173";
     const userId = request.header("x-test-user");
     if (userId) response.locals.session = { user: { id: userId } };
     next();
@@ -50,7 +52,9 @@ const app = createApp({
   logger: pino({ level: "silent" }),
 });
 const syncApp = createApp({
+  appOrigin: "http://localhost:5173",
   apiAuthMiddleware: (request, response, next) => {
+    request.headers.origin ??= "http://localhost:5173";
     const userId = request.header("x-test-user");
     if (userId) response.locals.session = { user: { id: userId } };
     next();

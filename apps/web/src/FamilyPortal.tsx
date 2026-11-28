@@ -239,9 +239,13 @@ function JoinFamilyPanel({
 export function FamilyPortal({
   view = "account",
   onSessionChange,
+  resetToken,
+  onReturnToSignIn,
 }: {
-  view?: "account" | "today" | "settings";
+  view?: "account" | "today" | "settings" | "reset-password";
   onSessionChange?: (signedIn: boolean) => void;
+  resetToken?: string | null;
+  onReturnToSignIn?: () => void;
 }) {
   const { t } = useTranslation();
   const [phase, setPhase] = useState<PortalPhase>("loading");
@@ -250,6 +254,7 @@ export function FamilyPortal({
   const [verificationEmail, setVerificationEmail] = useState<string | null>(
     null,
   );
+  const [resetRequestOpen, setResetRequestOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [families, setFamilies] = useState<FamilySummary[]>([]);
   const [deletedFamilies, setDeletedFamilies] = useState<
@@ -343,8 +348,9 @@ export function FamilyPortal({
   }, [loadFamilies, t, onSessionChange]);
 
   useEffect(() => {
+    if (view === "reset-password") return;
     void Promise.resolve().then(initialize);
-  }, [initialize]);
+  }, [initialize, view]);
 
   async function submit(
     event: FormEvent<HTMLFormElement>,
@@ -432,6 +438,31 @@ export function FamilyPortal({
       }
       throw requestError;
     }
+  }
+
+  async function requestPasswordReset(email: string) {
+    await apiRequest("/api/auth/request-password-reset", "POST", {
+      email,
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setNotice(t("resetEmailRequested"));
+    setResetRequestOpen(false);
+  }
+
+  async function resetPassword(form: FormData) {
+    if (!resetToken) {
+      throw new Error(t("resetLinkInvalid"));
+    }
+    const newPassword = String(form.get("newPassword") ?? "");
+    if (newPassword !== String(form.get("confirmPassword") ?? "")) {
+      throw new Error(t("passwordsDoNotMatch"));
+    }
+    await apiRequest("/api/auth/reset-password", "POST", {
+      newPassword,
+      token: resetToken,
+    });
+    setNotice(t("passwordResetSuccess"));
+    onReturnToSignIn?.();
   }
 
   async function createFamily(form: FormData) {
@@ -679,129 +710,251 @@ export function FamilyPortal({
         </p>
       )}
 
-      {phase === "loading" && (
+      {phase === "loading" && view !== "reset-password" && (
         <p className="portal-loading" role="status">
           {t("loading")}
         </p>
       )}
 
-      {phase === "signed-out" && (
+      {phase === "signed-out" && view !== "reset-password" && (
         <div className="portal-card auth-card">
-          <div className="portal-tabs" role="group" aria-label={t("account")}>
-            <button
-              aria-pressed={authMode === "sign-in"}
-              className="portal-tab"
-              disabled={busy}
-              onClick={() => {
-                setAuthMode("sign-in");
-                setError("");
-                setNotice("");
-                setVerificationEmail(null);
-              }}
-              type="button"
-            >
-              {t("signIn")}
-            </button>
-            <button
-              aria-pressed={authMode === "sign-up"}
-              className="portal-tab"
-              disabled={busy}
-              onClick={() => {
-                setAuthMode("sign-up");
-                setError("");
-                setNotice("");
-                setVerificationEmail(null);
-              }}
-              type="button"
-            >
-              {t("createAccount")}
-            </button>
-          </div>
-          <form
-            className="portal-form"
-            onSubmit={(event) =>
-              void submit(event, () =>
-                authMode === "sign-in"
-                  ? signIn(new FormData(event.currentTarget))
-                  : signUp(new FormData(event.currentTarget)),
-              )
-            }
-          >
-            {authMode === "sign-up" && (
-              <>
-                <label>
-                  {t("name")}
-                  <input autoComplete="name" name="name" required />
-                </label>
-                <label className="portal-check">
-                  <input required type="checkbox" />
-                  <span>{t("termsConsent")}</span>
-                </label>
-                <label className="portal-check">
-                  <input required type="checkbox" />
-                  <span>{t("adultConsent")}</span>
-                </label>
-                <label className="portal-check">
-                  <input required type="checkbox" />
-                  <span>{t("caregiverConsent")}</span>
-                </label>
-              </>
-            )}
-            <label>
-              {t("email")}
-              <input
-                autoComplete="email"
-                name="email"
-                onChange={(event) => {
-                  setAuthEmail(event.target.value);
-                  if (verificationEmail) {
-                    setError("");
-                    setNotice("");
-                  }
-                  setVerificationEmail(null);
-                }}
-                required
-                type="email"
-                value={authEmail}
-              />
-            </label>
-            <label>
-              {t("password")}
-              <input
-                autoComplete={
-                  authMode === "sign-up" ? "new-password" : "current-password"
-                }
-                minLength={8}
-                name="password"
-                required
-                type="password"
-              />
-            </label>
-            <button className="portal-primary" disabled={busy} type="submit">
-              {busy
-                ? t("loading")
-                : authMode === "sign-in"
-                  ? t("signIn")
-                  : t("createAccount")}
-            </button>
-            {verificationEmail && authEmail.trim() === verificationEmail && (
-              <button
-                className="portal-secondary"
-                disabled={busy}
-                onClick={() =>
-                  void runAction(() =>
-                    resendVerificationEmail(verificationEmail),
+          {resetRequestOpen ? (
+            <>
+              <h2>{t("forgotPassword")}</h2>
+              <form
+                className="portal-form"
+                onSubmit={(event) =>
+                  void submit(event, () =>
+                    requestPasswordReset(authEmail.trim()),
                   )
                 }
-                type="button"
               >
-                {busy ? t("loading") : t("resendVerification")}
-              </button>
-            )}
-          </form>
+                <label>
+                  {t("email")}
+                  <input
+                    autoComplete="email"
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    required
+                    type="email"
+                    value={authEmail}
+                  />
+                </label>
+                <button
+                  className="portal-primary"
+                  disabled={busy}
+                  type="submit"
+                >
+                  {busy ? t("loading") : t("sendResetLink")}
+                </button>
+                <button
+                  className="portal-secondary"
+                  disabled={busy}
+                  onClick={() => setResetRequestOpen(false)}
+                  type="button"
+                >
+                  {t("backToSignIn")}
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <div
+                className="portal-tabs"
+                role="group"
+                aria-label={t("account")}
+              >
+                <button
+                  aria-pressed={authMode === "sign-in"}
+                  className="portal-tab"
+                  disabled={busy}
+                  onClick={() => {
+                    setAuthMode("sign-in");
+                    setError("");
+                    setNotice("");
+                    setVerificationEmail(null);
+                    setResetRequestOpen(false);
+                  }}
+                  type="button"
+                >
+                  {t("signIn")}
+                </button>
+                <button
+                  aria-pressed={authMode === "sign-up"}
+                  className="portal-tab"
+                  disabled={busy}
+                  onClick={() => {
+                    setAuthMode("sign-up");
+                    setError("");
+                    setNotice("");
+                    setVerificationEmail(null);
+                    setResetRequestOpen(false);
+                  }}
+                  type="button"
+                >
+                  {t("createAccount")}
+                </button>
+              </div>
+              <form
+                className="portal-form"
+                onSubmit={(event) =>
+                  void submit(event, () =>
+                    authMode === "sign-in"
+                      ? signIn(new FormData(event.currentTarget))
+                      : signUp(new FormData(event.currentTarget)),
+                  )
+                }
+              >
+                {authMode === "sign-up" && (
+                  <>
+                    <label>
+                      {t("name")}
+                      <input autoComplete="name" name="name" required />
+                    </label>
+                    <label className="portal-check">
+                      <input required type="checkbox" />
+                      <span>{t("termsConsent")}</span>
+                    </label>
+                    <label className="portal-check">
+                      <input required type="checkbox" />
+                      <span>{t("adultConsent")}</span>
+                    </label>
+                    <label className="portal-check">
+                      <input required type="checkbox" />
+                      <span>{t("caregiverConsent")}</span>
+                    </label>
+                  </>
+                )}
+                <label>
+                  {t("email")}
+                  <input
+                    autoComplete="email"
+                    name="email"
+                    onChange={(event) => {
+                      setAuthEmail(event.target.value);
+                      if (verificationEmail) {
+                        setError("");
+                        setNotice("");
+                      }
+                      setVerificationEmail(null);
+                    }}
+                    required
+                    type="email"
+                    value={authEmail}
+                  />
+                </label>
+                <label>
+                  {t("password")}
+                  <input
+                    autoComplete={
+                      authMode === "sign-up"
+                        ? "new-password"
+                        : "current-password"
+                    }
+                    minLength={8}
+                    name="password"
+                    required
+                    type="password"
+                  />
+                </label>
+                <button
+                  className="portal-primary"
+                  disabled={busy}
+                  type="submit"
+                >
+                  {busy
+                    ? t("loading")
+                    : authMode === "sign-in"
+                      ? t("signIn")
+                      : t("createAccount")}
+                </button>
+                {verificationEmail &&
+                  authEmail.trim() === verificationEmail && (
+                    <button
+                      className="portal-secondary"
+                      disabled={busy}
+                      onClick={() =>
+                        void runAction(() =>
+                          resendVerificationEmail(verificationEmail),
+                        )
+                      }
+                      type="button"
+                    >
+                      {busy ? t("loading") : t("resendVerification")}
+                    </button>
+                  )}
+                {authMode === "sign-in" && (
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    onClick={() => {
+                      setError("");
+                      setNotice("");
+                      setResetRequestOpen(true);
+                    }}
+                    type="button"
+                  >
+                    {t("forgotPassword")}
+                  </button>
+                )}
+              </form>
+            </>
+          )}
         </div>
       )}
 
+      {view === "reset-password" && (
+        <div className="portal-card auth-card">
+          <h2>{t("resetPassword")}</h2>
+          {resetToken ? (
+            <form
+              className="portal-form"
+              onSubmit={(event) =>
+                void submit(event, () =>
+                  resetPassword(new FormData(event.currentTarget)),
+                )
+              }
+            >
+              <label>
+                {t("newPassword")}
+                <input
+                  autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
+                  name="newPassword"
+                  required
+                  type="password"
+                />
+              </label>
+              <label>
+                {t("confirmPassword")}
+                <input
+                  autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
+                  name="confirmPassword"
+                  required
+                  type="password"
+                />
+              </label>
+              <button className="portal-primary" disabled={busy} type="submit">
+                {busy ? t("loading") : t("resetPassword")}
+              </button>
+            </form>
+          ) : (
+            <p className="portal-message portal-error" role="alert">
+              {t("resetLinkInvalid")}
+            </p>
+          )}
+          <button
+            className="portal-secondary"
+            disabled={busy}
+            onClick={onReturnToSignIn}
+            type="button"
+          >
+            {t("backToSignIn")}
+          </button>
+        </div>
+      )}
       {phase === "new-family" && (
         <div className="portal-workspace">
           <div className="portal-card">

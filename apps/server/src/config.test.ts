@@ -7,8 +7,8 @@ const validEnvironment = {
   BETTER_AUTH_SECRET: "a-development-secret-that-is-at-least-32-bytes",
   TURSO_DATABASE_URL: "libsql://familycradle-dev-example.turso.io",
   TURSO_AUTH_TOKEN: "development-token",
-  RESEND_API_KEY: "re_development_key",
-  EMAIL_FROM: "FamilyCradle <no-reply@example.com>",
+  SMTP_USER: "familycradle.sender@example.com",
+  SMTP_APP_PASSWORD: "development-app-password",
   INTERNAL_JOB_AUDIENCE: "https://example.com/internal/jobs",
   INTERNAL_JOB_SA_EMAIL:
     "familycradle-scheduler@example-project.iam.gserviceaccount.com",

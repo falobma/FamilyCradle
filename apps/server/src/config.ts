@@ -20,8 +20,8 @@ const EnvironmentSchema = z
     TRUSTED_PROXIES: z.string().default(""),
     TURSO_DATABASE_URL: z.url(),
     TURSO_AUTH_TOKEN: z.string().min(1),
-    RESEND_API_KEY: z.string().min(1),
-    EMAIL_FROM: z.string().min(1),
+    SMTP_USER: z.email(),
+    SMTP_APP_PASSWORD: z.string().min(1),
     INTERNAL_JOB_AUDIENCE: z.string().min(1),
     INTERNAL_JOB_SA_EMAIL: z.email(),
     LOG_LEVEL: z

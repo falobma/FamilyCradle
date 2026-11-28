@@ -28,5 +28,10 @@
     "prettier": "^3.6.2",
     "auth": "^1.7.27",
     "typescript-eslint": "^8.73.0"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    }
   }
 }

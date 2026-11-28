@@ -37,7 +37,9 @@ const dbPath = join(tmpdir(), `family-logs-${randomUUID()}.db`);
 const client = createClient({ url: `file:${dbPath.replaceAll("\\", "/")}` });
 const db = drizzle(client, { schema });
 const app = createApp({
+  appOrigin: "http://localhost:5173",
   apiAuthMiddleware: (req, res, next) => {
+    req.headers.origin ??= "http://localhost:5173";
     if (req.header("x-test-user"))
       res.locals.session = { user: { id: req.header("x-test-user") } };
     next();

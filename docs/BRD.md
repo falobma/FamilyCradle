@@ -36,7 +36,7 @@ FamilyCradle is a shared daily journal for a baby and the people caring for them
 | Fast logging | Taps needed for a quick log (bottle with shortcut, diaper) | ≤ 2 taps after opening the app |
 | Shared usage | Families with ≥ 2 active members | ≥ 50% of active families |
 | Retention | Families logging on ≥ 5 of the last 7 days | ≥ 40% |
-| Reliability | Successful sync of offline entries | ≥ 99.5% |
+| Reliability | Successful online log writes | ≥ 99.5% |
 | Trust | AI insights reported as wrong/unsafe | < 1% of generated insights |
 
 ### 1.4 Product principles
@@ -66,7 +66,7 @@ FamilyCradle is a shared daily journal for a baby and the people caring for them
 | X1 | Family and roles | Family, invite code, Mom / Dad / Caregiver roles, multiple families per user, multiple children | 1 |
 | X2 | Timeline and Today dashboard | Unified day timeline, daily summary, quick actions | 1 |
 | X3 | Twins / multiple children | Fast child switcher, "log for both / all" | 1 |
-| X4 | Offline PWA and polling sync | Installable, offline queue, sync every few seconds | 1 |
+| X4 | Installable PWA and online polling sync | Static app shell may be cached; family data and edits require an active connection; sync every few seconds | 1 |
 | X5 | Language | Bahasa Indonesia, English, Mixed | 1 |
 | X6 | Night mode | Auto dim theme at night | 1 |
 | X7 | Analytics | Weekly analytics, WHO growth charts and percentiles | 2 |
@@ -182,7 +182,7 @@ Rules:
 | Database | Turso / libSQL (cloud) in **all environments**, including local development | Separate Turso databases per environment: `familycradle-dev`, `familycradle-prod` (optional `-staging`). See 5.5 |
 | Auth | **Better Auth** (email + password) | Replaces hand-rolled JWT. Secure httpOnly cookie sessions, 7-day sliding expiry (Section 6.1) |
 | AI | Google Gemini via official `@google/genai` SDK, server-side only, API key | Phase 2. Model name from env var `GEMINI_MODEL` (do not hard-code) |
-| Email | Resend | Only for email verification and password reset |
+| Email | Gmail SMTP via Nodemailer | Only for email verification and password reset; credentials are Cloud Run secrets |
 | PWA | Service worker + Web App Manifest | Recommended `vite-plugin-pwa` (Workbox). Agent must confirm Vite 8 compatibility; fall back to Workbox CLI `injectManifest` if needed |
 | Hosting | Google Cloud Run, region `asia-southeast3` | Single container serving API and built frontend |
 | Scheduled jobs | Google Cloud Scheduler → secured internal HTTP endpoints | Phase 1: data purge. Phase 2: reminders, weekly AI summary |
@@ -196,33 +196,34 @@ Rules:
 | Validation (shared client/server) | Zod |
 | Server state, polling | TanStack Query (`refetchInterval`) |
 | Routing | React Router |
-| Offline storage / queue | Dexie (IndexedDB) |
+| Offline storage / queue | None; app data and edits are online-only |
 | Dates and timezones | `date-fns` + `date-fns-tz` (or `@date-fns/tz`) |
 | Charts (Phase 2) | Recharts (or visx) |
 | i18n | `i18next` + `react-i18next` |
 | Security middleware | `helmet`, `express-rate-limit`, `cors` (only if cross-origin, which it should not be) |
 | Logging | `pino` + `pino-http` (JSON logs for Cloud Logging) |
-| IDs | UUID v7 (time-sortable), generated on the client for log entries (enables offline idempotency) |
+| IDs | UUID v7 (time-sortable), generated on the client for idempotent log-entry retries |
 | Web push (Phase 2) | `web-push` (VAPID) |
 | PDF (Phase 2) | `@react-pdf/renderer` on the server (no headless Chromium on Cloud Run) |
-| Fonts | `@fontsource/fredoka`, `@fontsource/nunito` (self-hosted for offline) |
+| Fonts | `@fontsource/fredoka`, `@fontsource/nunito` (self-hosted) |
 | Icons | One consistent set, e.g. Phosphor Icons (duotone) tinted with module colors |
 
 ### 5.3 Architecture
 ```
 [ PWA (React) ] --same-origin HTTPS--> [ Cloud Run: Express ]
-   |  IndexedDB offline queue              |-- /api/auth/*  (Better Auth)
-   |  Service worker cache                 |-- /api/*       (app REST API)
-   |  Polling every 5s (visible tab)       |-- /internal/jobs/* (Cloud Scheduler, OIDC protected)
+   |  Static app-shell cache               |-- /api/auth/*  (Better Auth)
+   |  Polling every 5s (visible tab)       |-- /api/*       (app REST API)
+                                           |-- /internal/jobs/* (Cloud Scheduler, OIDC protected)
                                            |-- /*           (static frontend, SPA fallback)
                                            |
                                            +--> Turso (libSQL)
-                                           +--> Resend (account emails)
+                                           +--> Gmail SMTP (account emails)
                                            +--> Gemini API (Phase 2, server-side only)
                                            +--> Web Push services (Phase 2)
 ```
 - **Same origin is mandatory.** Express serves the built frontend from `apps/web/dist`. This keeps auth cookies first-party (`SameSite=Lax`) and avoids CORS.
 - The server is **stateless**. No in-memory session or timer state. Everything lives in Turso so multiple Cloud Run instances behave identically.
+- The PWA caches static assets only. All family data reads and writes require an active connection; failed writes are not queued or replayed.
 
 ### 5.4 Repository structure (npm workspaces monorepo)
 ```
@@ -233,7 +234,7 @@ familycradle/
         app/            # routes, layout, providers
         features/       # one folder per module: milk, breastfeed, diaper, sleep, mpasi, pumping, medicine, growth, vaccine, milestone, family, timeline, today, insights
         components/     # shared UI (Button, BottomSheet, Stepper, TimePicker, ...)
-        lib/            # api client, query client, offline queue, i18n, time utils
+        lib/            # api client, query client, i18n, time utils
         styles/         # tailwind.css with @theme tokens
         locales/        # id.json, en.json, mixed.json
     server/
@@ -264,8 +265,8 @@ familycradle/
 | `BETTER_AUTH_SECRET` | yes | ≥ 32 random bytes |
 | `BETTER_AUTH_URL` | yes | Same as `APP_URL` |
 | `TRUSTED_PROXIES` | production | Comma-separated trusted proxy IPs/CIDRs for safe client-IP rate limiting |
-| `RESEND_API_KEY` | yes | Resend key |
-| `EMAIL_FROM` | yes | e.g. `FamilyCradle <no-reply@familycradle.id>` (domain must be verified in Resend) |
+| `SMTP_USER` | yes | Gmail account used to send account emails |
+| `SMTP_APP_PASSWORD` | yes | Gmail App Password; store as a Cloud Run secret, never commit it |
 | `GEMINI_API_KEY` | Phase 2 | Server only |
 | `GEMINI_MODEL` | Phase 2 | Model ID, configurable |
 | `AI_DAILY_ONDEMAND_LIMIT_PER_FAMILY` | Phase 2 | Default `5` |
@@ -298,8 +299,8 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 | ID | Requirement |
 |---|---|
 | SEC-AUTH-01 | Use Better Auth email + password. Do not implement custom password hashing, token signing or session storage. |
-| SEC-AUTH-02 | `emailAndPassword.requireEmailVerification = true`. Unverified users cannot sign in. Verification email sent via Resend. Verification link valid 24 h. |
-| SEC-AUTH-03 | Password reset via Resend email link, valid 1 h, single use. On successful reset, revoke all other sessions of that user. |
+| SEC-AUTH-02 | `emailAndPassword.requireEmailVerification = true`. Unverified users cannot sign in. Verification email sent via Gmail SMTP. Verification link valid 24 h. |
+| SEC-AUTH-03 | Password reset via Gmail SMTP email link, valid 1 h, single use. The sign-in screen exposes a reset request flow and the link opens an in-app new-password form. On successful reset, revoke all other sessions of that user. |
 | SEC-AUTH-04 | Session: `expiresIn = 7 days`, `updateAge = 1 hour`. Effect: the session expires 7 days after the user's **last** activity; any visit extends it again to 7 days (sliding). |
 | SEC-AUTH-05 | Session cookie: `httpOnly`, `secure` (prod), `SameSite=Lax`, `path=/`. No tokens in `localStorage`. |
 | SEC-AUTH-06 | Password policy: min 8, max 128 characters; reject passwords found in known breach lists (use Better Auth's breached-password plugin if available in the installed version; otherwise document the gap). |
@@ -347,7 +348,7 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 | ID | Requirement |
 |---|---|
 | PRV-01 | Sign-up requires accepting Terms of Service and Privacy Policy (checkbox, stored with timestamp and policy version). The user confirms they are 18 or older and a parent/guardian or authorized caregiver. |
-| PRV-02 | Privacy Policy (ID and EN) explains: data collected, purpose, storage location (Turso region, Cloud Run region), processors (Google Cloud, Turso, Resend, Google Gemini, Have I Been Pwned password-check API), retention, deletion, and contact. The password-check API receives only the first five characters of a SHA-1 password hash, never the password itself. Product owner provides final legal text; agent creates placeholder pages at `/privacy` and `/terms`. |
+| PRV-02 | Privacy Policy (ID and EN) explains: data collected, purpose, storage location (Turso region, Cloud Run region), processors (Google Cloud, Gmail SMTP, Turso, Google Gemini, Have I Been Pwned password-check API), retention, deletion, and contact. The password-check API receives only the first five characters of a SHA-1 password hash, never the password itself. Product owner provides final legal text; agent creates placeholder pages at `/privacy` and `/terms`. |
 | PRV-03 | **AI consent (Phase 2):** AI features are off until a parent enables "Izinkan analisis AI" for the family. The consent dialog explains what is sent to Gemini. Consent is stored (who, when) and can be withdrawn anytime; withdrawal stops all AI calls immediately. |
 | PRV-04 | **Data minimization for AI:** never send names, emails, notes free-text, or user identities to Gemini. Send only age (days, corrected age), sex, and aggregated/structured measurements (Section 12.4). |
 | PRV-05 | **Account deletion:** user can delete their account from Settings (password re-entry required). Their memberships are removed; entries they created remain in the family but `created_by` shows "Mantan anggota / Former member". If they are the last parent of a family, they must delete that family first (UI guides them). |
@@ -360,7 +361,7 @@ The app is **public** and stores **children's health data**. Under Indonesia's P
 ## 7. Data model
 
 ### 7.1 Conventions
-- Primary keys: `TEXT` UUID v7, except deterministic multi-child log siblings, which use UUID v5 IDs derived from the client-generated base UUIDv7 and child ID (Section 11.2). Log entry base IDs are generated **on the client** for offline idempotency; other tables may generate IDs on the server.
+- Primary keys: `TEXT` UUID v7, except deterministic multi-child log siblings, which use UUID v5 IDs derived from the client-generated base UUIDv7 and child ID (Section 11.2). Log entry base IDs are generated **on the client** to support idempotent retries; other tables may generate IDs on the server.
 - All timestamps stored as `TEXT` ISO-8601 in **UTC** (e.g. `2026-11-22T03:12:00.000Z`). Date-only values (DOB, vaccine due date) stored as `TEXT` `YYYY-MM-DD`.
 - Units stored as integers in base units: volume in **ml**, weight in **grams**, length and head circumference in **millimetres**, duration in **seconds**.
 - Every family-owned table has: `family_id`, `created_at`, `created_by`, `updated_at`, `updated_by`, `version` (int, starts at 1, +1 on each update), `rev` (int, family-level change counter for sync), `deleted_at` (soft delete / tombstone).
@@ -593,7 +594,7 @@ Enum values are stored as the codes above; display labels come from i18n files.
 - **BR-TIME-02** Daily totals (milk vs target, sleep hours, diaper counts, pumping total) are computed per **family day**: 00:00–23:59:59 in `family.timezone`. Default `family.timezone` = creator's device timezone; fallback `Asia/Jakarta` (GMT+7). Parents can change it.
 - **BR-TIME-03** If a viewer's timezone differs from the family timezone, the Today screen shows a small hint "Waktu keluarga: WIB (GMT+7)".
 - **BR-TIME-04** Entries cannot be dated more than 5 minutes in the future (clock-skew tolerance) and not before the child's DOB.
-- **BR-TIME-05** Timers always use **server time** (`started_at` is set by the server on start; client sends its own time only for offline-created entries, see 8.13).
+- **BR-TIME-05** Timers always use **server time** (`started_at` is set by the server on start).
 
 ### 8.2 Age and corrected age
 - **BR-AGE-01** Chronological age = today (family timezone) − `date_of_birth`, shown as "3 bulan 12 hari" / "3 months 12 days"; < 1 month shown as weeks + days; day count also available ("Hari ke-45").
@@ -692,14 +693,11 @@ Enum values are stored as the codes above; display labels come from i18n files.
 - **BR-MS-03** Seed text must come from the official CDC "Learn the Signs. Act Early." milestone checklists (2022 revision) and be translated to Bahasa Indonesia; translations reviewed by the product owner **[VERIFY]**.
 - **BR-MS-04** Phase 2 "Perlu perhatian" flag: if, at corrected age ≥ checkpoint + 1 month, any item of that checkpoint is unchecked, show a gentle flag "Beberapa milestone belum tercatat. Diskusikan dengan dokter saat kontrol." Never use alarming language. CDC also advises acting early when a child loses skills they once had; include a static info text about this.
 
-### 8.13 Sync, polling, offline and conflicts
-- **BR-SYNC-01 Polling:** TanStack Query polls `GET /api/families/:fid/sync?since=<rev>` every **5 s** while the Today or Timeline screen is visible and the tab is in the foreground; every 30 s on other screens; paused when the tab is hidden; immediate refetch on window focus and on reconnect.
+### 8.13 Online sync and conflicts
+- **BR-SYNC-01 Polling:** the client polls `GET /api/families/:fid/sync?since=<rev>` every **5 s** while the Today or Timeline screen is visible and the tab is in the foreground; every 30 s on other screens; paused when the tab is hidden; immediate refetch on window focus and when connectivity returns.
 - **BR-SYNC-02 Delta sync:** the server returns all family rows (log_entry, growth_measurement, child_vaccine, child_milestone, mpasi_food, child, family_member, family) with `rev > since`, including soft-deleted rows as tombstones, plus the new `rev`. Max 500 rows per page with `hasMore`.
-- **BR-SYNC-03 Offline create/edit:** when offline (or request fails due to network), mutations are stored in a Dexie queue with the client-generated ID and the client timestamp. UI updates optimistically and shows a small "Belum tersinkron" cloud icon on those entries.
-- **BR-SYNC-04 Replay:** queue replays in order when online. Creates are idempotent (`PUT /api/logs/:id` upsert by client ID). If the same ID already exists with identical content, return 200.
-- **BR-SYNC-05 Conflicts (optimistic concurrency):** updates send `version`. If the server version is higher, the server returns `409` with the current row. Default resolution: **server wins**, and the client shows a toast "Catatan ini sudah diubah oleh Ayah. Perubahanmu tidak disimpan." with a "Lihat" action. Deletes always win over edits.
-- **BR-SYNC-06 Timers offline:** starting a timer offline creates a running entry with client time and `source = timer`; on sync the server accepts the client `started_at` only if it is within the last 24 h and also satisfies BR-TIME-04 (no more than 5 minutes in the future and not before the child's DOB). Otherwise, reject it with `VALIDATION_ERROR`. If another member already has a running timer of the same type for that child, the server returns 409 and the client offers "Gabungkan" (keep the earlier start) or "Batalkan punyaku".
-- **BR-SYNC-07** Read data cached for offline: the last 14 days of entries per child, child profiles, vaccine list, milestone list.
+- **BR-SYNC-03 Conflicts (optimistic concurrency):** updates send `version`. If the server version is higher, the server returns `409` with the current row. Default resolution: **server wins**, and the client shows a toast "Catatan ini sudah diubah oleh Ayah. Perubahanmu tidak disimpan." with a "Lihat" action. Deletes always win over edits.
+- **BR-SYNC-04 Online-only writes:** log and family-data writes require an active connection. If a request fails, report the error; do not save or replay the mutation locally. The service worker may cache static app assets but never queues family data.
 
 ### 8.14 Multiple children and twins (X3)
 - **BR-TWN-01** A child switcher (avatars with each child's accent color) is always visible in the header. The last active child is remembered per user.
@@ -721,7 +719,7 @@ Format: **ID** requirement → *Acceptance criteria (AC)*. Phase shown as [P1] o
 
 ### 9.1 Account and onboarding
 - **FR-ACC-01 [P1]** Sign up with display name, email, password, ToS/Privacy + 18+ confirmation.
-  *AC:* verification email arrives via Resend in the user's chosen language; account cannot sign in until verified; duplicate email shows generic message.
+  *AC:* verification email arrives via Gmail SMTP in the user's chosen language; account cannot sign in until verified; duplicate email shows generic message.
 - **FR-ACC-02 [P1]** Sign in / sign out / sign out of all devices.
   *AC:* session survives app restarts; a user who opens the app at least once every 7 days stays signed in indefinitely; a user inactive 7+ days is sent to login.
 - **FR-ACC-03 [P1]** Forgot password / reset password.
@@ -852,7 +850,7 @@ Values are a starting palette; the agent may fine-tune but must keep WCAG AA con
   --radius-pill: 9999px;
 }
 ```
-- Headings, numbers on cards, buttons: **Fredoka** (500–600). Body and labels: **Nunito** (400–700). Self-host both for offline.
+- Headings, numbers on cards, buttons: **Fredoka** (500–600). Body and labels: **Nunito** (400–700). Self-host both.
 - Base font size 16 px; key numbers (ml, timers) 28–40 px.
 
 ### 10.3 Layout and navigation
@@ -1115,17 +1113,17 @@ See Appendix F. Each flag has `code`, `severity` (`info` / `watch` / `consult`),
 ### Phase 1: From sign-up to logging trackers
 | Milestone | Scope |
 |---|---|
-| P1.1 Foundation | Monorepo, TypeScript configs, ESLint/Prettier, Dockerfile, CI (lint, typecheck, test, audit, build), Turso dev DB connection, Drizzle schema + migrations, Better Auth (email+password, verification, reset, 7-day sliding session), Resend templates (ID/EN), security middleware (Section 6), health endpoints, i18n skeleton, design tokens, base components |
+| P1.1 Foundation | Monorepo, TypeScript configs, ESLint/Prettier, Dockerfile, CI (lint, typecheck, test, audit, build), Turso dev DB connection, Drizzle schema + migrations, Better Auth (email+password, verification, reset, 7-day sliding session), Gmail SMTP templates (ID/EN), security middleware (Section 6), health endpoints, i18n skeleton, design tokens, base components |
 | P1.2 Family | Onboarding, create family, invite codes (create/preview/redeem/revoke), roles and permission middleware, members management, add/edit/delete child, multiple families switcher |
 | P1.3 Logging core | `log_entry` service + audit log + rev counter, timers (sleep, DBF, pumping) server-side, entry sheets for all modules (bottle, DBF, diaper, sleep, MPASI incl. food catalog and allergy watch, pumping, medicine), multi-child "log for both", Today screen, Timeline, undo/restore |
 | P1.4 Health records | Growth entry and list, vaccine schedule generation (Appendix A) and management, milestone checklist (CDC seed), milk target engine (Appendix B), wake window suggestion (Appendix C), diaper color notes |
-| P1.5 PWA and sync | Polling sync with delta endpoint, Dexie offline queue and replay, conflict handling, service worker, install prompt, night mode, language toggle (ID/EN/Mixed) |
+| P1.5 PWA and sync | Online polling with delta endpoint, optimistic concurrency handling, static app-shell service worker cache, install prompt, night mode, language toggle (ID/EN/Mixed) |
 
 **Phase 1 Definition of Done**
 - [ ] A new user can sign up, verify email, create a family, add a child, invite a caregiver and a second parent with codes.
 - [ ] All 10 modules support their specified create/update/delete/restore or status-update operations for Mom, Dad and Caregiver (Vaksin and Milestone follow their module-specific rules), and each entry shows who logged it.
 - [ ] A timer started on device A shows on device B within 6 s and can be stopped from device B with correct duration.
-- [ ] Logging works offline and syncs correctly when back online; conflicts handled per BR-SYNC-05.
+- [ ] Writes require an active connection; failed writes are reported and never queued locally.
 - [x] Caregiver cannot access any parent-only endpoint (automated tests for every route).
 - [ ] Milk target, vaccine statuses and wake windows match unit-test fixtures.
 - [ ] Language toggle (3 modes) and night mode work across all screens.
@@ -1157,12 +1155,12 @@ See Appendix F. Each flag has `code`, `severity` (`info` / `watch` / `consult`),
 |---|---|---|
 | Unit | Vitest | milk target bands & ramp, corrected age, sleep midnight split, vaccine generation & status, option regeneration, invite code generation/hash, red flag rules, z-score/percentile, allergy watch, number parsing (comma/dot) |
 | API integration | Vitest + Supertest, in-memory libSQL | every endpoint: happy path, validation errors, **authz matrix** (non-member → 404, caregiver → 403 on parent routes), idempotent PUT, 409 version conflicts, timers |
-| E2E | Playwright (2 browser contexts = 2 family members) | onboarding, invite/join, quick logs, cross-device timer, offline queue, language switch, night mode |
+| E2E | Playwright (2 browser contexts = 2 family members) | onboarding, invite/join, quick logs, cross-device timer, online write failures, language switch, night mode |
 | Security | automated + manual checklist | IDOR attempts, rate limits, CSP headers, cookie flags, auth flows, invite brute force |
 | AI (P2) | fixture-based prompt tests | schema validity, safety filter, language, no hallucinated numbers (all numbers in output must exist in input) |
 | Accessibility | axe-core in Playwright | 0 critical violations |
 
-Email in tests: mock Resend with a fake transport that captures links.
+Email in tests: mock the SMTP transport with a fake transport that captures links.
 
 ---
 
@@ -1183,7 +1181,7 @@ Email in tests: mock Resend with a fake transport that captures links.
 
 ### 18.2 Open items for the product owner (not blocking Phase 1 start)
 1. Final Privacy Policy and Terms text (legal review recommended for UU PDP).
-2. Custom domain name and sender domain for Resend.
+2. Gmail account with 2-step verification and an App Password; configure `SMTP_USER` and `SMTP_APP_PASSWORD` as Cloud Run secrets.
 3. Medical review of all **[VERIFY]** items (Appendix A, B, C, F, milestone translations) by a pediatrician or qualified health professional before public launch.
 4. Content for "Kapan harus segera ke dokter" info page.
 5. Brand assets: logo, app icon, illustration style.

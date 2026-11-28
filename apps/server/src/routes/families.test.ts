@@ -21,7 +21,9 @@ const client = createClient({
 });
 const database = drizzle(client, { schema });
 const app = createApp({
+  appOrigin: "http://localhost:5173",
   apiAuthMiddleware: (_request, response, next) => {
+    _request.headers.origin ??= "http://localhost:5173";
     const userId = _request.header("x-test-user");
     if (userId) response.locals.session = { user: { id: userId } };
     next();

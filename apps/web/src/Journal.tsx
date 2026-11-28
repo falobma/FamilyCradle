@@ -55,6 +55,28 @@ const labels: Record<string, string> = {
   pumping: "Pumping",
   medicine: "Obat",
 };
+const sleepLocations = [
+  ["crib", "sleepLocationCrib"],
+  ["cosleep", "sleepLocationCosleep"],
+  ["contact", "sleepLocationContact"],
+  ["stroller", "sleepLocationStroller"],
+  ["car", "sleepLocationCar"],
+  ["swing", "sleepLocationSwing"],
+  ["other", "sleepOptionOther"],
+] as const;
+const sleepMethods = [
+  ["self", "sleepMethodSelf"],
+  ["nursing", "sleepMethodNursing"],
+  ["bottle", "sleepMethodBottle"],
+  ["rocking", "sleepMethodRocking"],
+  ["pacifier", "sleepMethodPacifier"],
+  ["other", "sleepOptionOther"],
+] as const;
+const sleepQualities = [
+  ["nyenyak", "sleepQualitySound"],
+  ["gelisah", "sleepQualityRestless"],
+  ["sering_bangun", "sleepQualityFrequentWaking"],
+] as const;
 function uuidV7() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   let time = Date.now();
@@ -76,6 +98,111 @@ function localDateTimeInput(value = new Date()) {
   return new Date(value.valueOf() - value.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
+}
+
+export function sleepDurationBetween(
+  start: string,
+  end: string,
+): number | null {
+  if (!start || !end) return null;
+  const duration = new Date(end).valueOf() - new Date(start).valueOf();
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+export function breastfeedManualDuration(
+  left: string,
+  right: string,
+): number | null {
+  if (!left.trim() || !right.trim()) return null;
+  const values = [Number(left), Number(right)];
+  if (values.some((value) => !Number.isInteger(value) || value < 0))
+    return null;
+  const total = values[0]! + values[1]!;
+  return total >= 1 && total <= 120 ? total : null;
+}
+
+export function incrementBreastfeedMinutes(
+  value: string,
+  increment: number,
+): string | null {
+  const minutes = value.trim() === "" ? 0 : Number(value);
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes + increment > 120)
+    return null;
+  return String(minutes + increment);
+}
+
+export function breastfeedEditedStart(original: string, time: string): string {
+  return time === localDateTimeInput(new Date(original))
+    ? original
+    : new Date(time).toISOString();
+}
+
+export function incrementPumpingAmount(
+  value: string,
+  increment: number,
+  maximum: number,
+): string | null {
+  const amount = value.trim() === "" ? 0 : Number(value);
+  if (!Number.isInteger(amount) || amount < 0 || amount + increment > maximum)
+    return null;
+  return String(amount + increment);
+}
+
+function PumpingAmount({
+  name,
+  label,
+  initialValue,
+  maximum,
+}: {
+  name: string;
+  label: string;
+  initialValue: number;
+  maximum: number;
+}) {
+  const [value, setValue] = useState(String(initialValue));
+  return (
+    <div>
+      <label>
+        {label}
+        <input
+          name={name}
+          type="number"
+          min="0"
+          max={maximum}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+        />
+      </label>
+      <div className="journal-dbf-increments">
+        {[5, 10].map((increment) => {
+          const next = incrementPumpingAmount(value, increment, maximum);
+          return (
+            <button
+              key={increment}
+              type="button"
+              className="journal-sleep-shortcut"
+              disabled={next === null}
+              aria-label={`${label} +${increment} ml`}
+              onClick={() => {
+                if (next !== null) setValue(next);
+              }}
+            >
+              +{increment} ml
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+class JournalApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
 }
 
 async function api<T>(
@@ -108,7 +235,7 @@ async function api<T>(
       typeof payload.error.message === "string"
         ? payload.error.message
         : `Request failed (${response.status}).`;
-    throw new Error(message);
+    throw new JournalApiError(message, response.status);
   }
   return response.status === 204
     ? (undefined as T)
@@ -121,7 +248,6 @@ export function Journal({
   pumpingSideMode,
   quickBottleMl,
   familyTimezone,
-  members,
 }: {
   familyId: string;
   children: Child[];
@@ -157,6 +283,8 @@ export function Journal({
   const [leftMinutes, setLeftMinutes] = useState("0");
   const [rightMinutes, setRightMinutes] = useState("0");
   const [lastSide, setLastSide] = useState("");
+  const [breastfeedDurationError, setBreastfeedDurationError] = useState(false);
+  const breastfeedDurationRef = useRef<HTMLInputElement>(null);
   const [pumpingMode, setPumpingMode] = useState<"combined" | "separate">(
     pumpingSideMode,
   );
@@ -179,6 +307,13 @@ export function Journal({
   const [defaultTime, setDefaultTime] = useState(() => localDateTimeInput());
   const [noteOpen, setNoteOpen] = useState(false);
   const [timeValue, setTimeValue] = useState(defaultTime);
+  const [sleepMode, setSleepMode] = useState<"running" | "completed">(
+    "running",
+  );
+  const [sleepEndTime, setSleepEndTime] = useState("");
+  const [sleepEndError, setSleepEndError] = useState(false);
+  const [sleepDetailsOpen, setSleepDetailsOpen] = useState(false);
+  const sleepEndRef = useRef<HTMLInputElement>(null);
   const [foodCatalog, setFoodCatalog] = useState<
     Array<{
       id: string;
@@ -278,10 +413,18 @@ export function Journal({
     };
   }, [sync, t]);
   useEffect(() => {
-    if (!entries.some((entry) => entry.status === "running")) return;
+    if (
+      !entries.some((entry) => entry.status === "running") &&
+      !(kind === "breastfeed" && (breastfeedMode === "manual" || editingEntry))
+    )
+      return;
+    const initial = window.setTimeout(() => setClock(Date.now()), 0);
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [entries]);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [entries, kind, breastfeedMode, editingEntry]);
 
   function openSheet(type: (typeof types)[number], entry: Entry | null) {
     setActiveTab("record");
@@ -299,6 +442,21 @@ export function Journal({
       : localDateTimeInput();
     setDefaultTime(nextTime);
     setTimeValue(nextTime);
+    if (type === "sleep") {
+      setSleepMode(entry?.endedAt ? "completed" : "running");
+      setSleepEndTime(
+        entry?.endedAt ? localDateTimeInput(new Date(entry.endedAt)) : "",
+      );
+      setSleepEndError(false);
+      setSleepDetailsOpen(
+        Boolean(
+          entry?.note ||
+          entry?.details.location ||
+          entry?.details.fallAsleepMethod ||
+          entry?.details.quality,
+        ),
+      );
+    }
     if (type === "breastfeed") {
       setBreastfeedMode(
         entry &&
@@ -309,6 +467,7 @@ export function Journal({
       );
       setLeftMinutes(String(Number(entry?.details.leftSec ?? 0) / 60));
       setRightMinutes(String(Number(entry?.details.rightSec ?? 0) / 60));
+      setBreastfeedDurationError(false);
       setLastSide(
         entry?.details.lastSide === "left" ||
           entry?.details.lastSide === "right"
@@ -362,8 +521,20 @@ export function Journal({
       setMessage(t("requestError"));
       return;
     }
-    const startedAt = parsedStartedAt.toISOString();
+    const startedAt =
+      kind === "breastfeed" &&
+      editingEntry &&
+      Array.isArray(editingEntry.details.segments)
+        ? breastfeedEditedStart(editingEntry.startedAt, time)
+        : parsedStartedAt.toISOString();
     const data = (name: string) => String(form.get(name) ?? "");
+    if (kind === "sleep" && sleepMode === "completed") {
+      if (sleepDurationBetween(time, sleepEndTime) === null) {
+        setSleepEndError(true);
+        sleepEndRef.current?.focus();
+        return;
+      }
+    }
     let details: Record<string, unknown> = {};
     let amountMl: number | undefined;
     let endedAt: string | undefined;
@@ -384,8 +555,12 @@ export function Journal({
       const leftSec = Number(data("leftMinutes") || 0) * 60;
       const rightSec = Number(data("rightMinutes") || 0) * 60;
       const manual = breastfeedMode === "manual";
-      if (manual && (leftSec + rightSec < 60 || leftSec + rightSec > 7200)) {
-        setMessage(t("invalidDuration"));
+      if (
+        manual &&
+        breastfeedManualDuration(leftMinutes, rightMinutes) === null
+      ) {
+        setBreastfeedDurationError(true);
+        breastfeedDurationRef.current?.focus();
         return;
       }
       if (manual)
@@ -444,7 +619,9 @@ export function Journal({
       details = {
         sideMode,
         ...(sideMode === "separate" ? { leftMl, rightMl } : {}),
-        ...(data("pumpedBy") ? { pumpedBy: data("pumpedBy") } : {}),
+        ...(typeof editingEntry?.details.pumpedBy === "string"
+          ? { pumpedBy: editingEntry.details.pumpedBy }
+          : {}),
       };
       if (data("endTime")) endedAt = new Date(data("endTime")).toISOString();
     }
@@ -554,13 +731,26 @@ export function Journal({
     }
   }
 
+  async function reportTimerError(error: unknown) {
+    if (error instanceof JournalApiError && error.status === 409) {
+      try {
+        await refresh();
+        setMessage(t("timerChanged"));
+      } catch {
+        setMessage(t("timerRefreshFailed"));
+      }
+    } else {
+      setMessage(t("requestError"));
+    }
+  }
   async function stop(entry: Entry) {
     setBusy(true);
     try {
       await api(`/api/logs/${entry.id}/timer/stop`, "POST", {});
       await refresh();
-    } catch {
-      setMessage(t("requestError"));
+      setMessage("");
+    } catch (error) {
+      await reportTimerError(error);
     } finally {
       setBusy(false);
     }
@@ -573,8 +763,9 @@ export function Journal({
     try {
       await api(`/api/logs/${entry.id}/timer/action`, "POST", { action });
       await refresh();
-    } catch {
-      setMessage(t("requestError"));
+      setMessage("");
+    } catch (error) {
+      await reportTimerError(error);
     } finally {
       setBusy(false);
     }
@@ -689,8 +880,17 @@ export function Journal({
     if (entry.type === "breastfeed") return breastfeedSummary(entry);
     if (entry.type === "diaper")
       return [d.kind, d.color].filter(Boolean).join(" · ");
-    if (entry.type === "sleep")
-      return [d.category, d.location].filter(Boolean).join(" · ");
+    if (entry.type === "sleep") {
+      const location = sleepLocations.find(([value]) => value === d.location);
+      return [
+        d.category === "nap" || d.category === "night"
+          ? t(d.category)
+          : d.category,
+        location ? t(location[1]) : d.location,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
     if (entry.type === "mpasi")
       return [d.mealType, d.texture].filter(Boolean).join(" · ");
     if (entry.type === "pumping") return `${entry.amountMl ?? 0} ml`;
@@ -893,6 +1093,7 @@ export function Journal({
   const hourAtDefault = new Date().getHours();
   const sleepCategoryDefault =
     hourAtDefault >= 19 || hourAtDefault < 6 ? "night" : "nap";
+  const sleepDurationMs = sleepDurationBetween(timeValue, sleepEndTime);
   const latestSleep = latestOf("sleep");
   const latestPup = dayEntries.find(
     (entry) =>
@@ -1253,26 +1454,105 @@ export function Journal({
         </button>
       </div>
       {runningTimers.length > 0 && (
-        <div
-          className="journal-sticky-timers"
-          hidden={activeTab !== "record"}
-          role="status"
-        >
-          {runningTimers.map((entry) => (
-            <div key={entry.id}>
-              <strong>{labels[entry.type] ?? entry.type}</strong> ·{" "}
-              {formatElapsed(elapsed(entry))} ·{" "}
-              {entry.createdByDisplayName ?? ""}
-              <button
-                className="portal-inline-button"
-                disabled={busy}
-                onClick={() => void stop(entry)}
-                type="button"
-              >
-                {t("stopTimer")}
-              </button>
-            </div>
-          ))}
+        <div className="journal-sticky-timers" hidden={activeTab !== "record"}>
+          {runningTimers.map((entry) => {
+            if (entry.type !== "breastfeed") {
+              return (
+                <div key={entry.id} role="status">
+                  <strong>{labels[entry.type] ?? entry.type}</strong> ·{" "}
+                  {formatElapsed(elapsed(entry))} ·{" "}
+                  {entry.createdByDisplayName ?? ""}
+                  <button
+                    className="portal-inline-button"
+                    disabled={busy}
+                    onClick={() => void stop(entry)}
+                    type="button"
+                  >
+                    {t(entry.type === "sleep" ? "sleepWakeStop" : "stopTimer")}
+                  </button>
+                </div>
+              );
+            }
+            const childName =
+              children.find((child) => child.id === entry.childId)?.name ??
+              t("familyLevel");
+            const side =
+              entry.details.lastSide === "right" ||
+              entry.details.lastSide === "left"
+                ? entry.details.lastSide
+                : null;
+            const switchLabel = t("dbfSwitchTo", {
+              side: t(side === "left" ? "right" : "left"),
+            });
+            return (
+              <div className="journal-dbf-timer" key={entry.id}>
+                <div className="journal-dbf-timer-heading">
+                  <strong>DBF · {childName}</strong>
+                  <span role="status">
+                    {t(entry.status === "paused" ? "paused" : "timerRunning")} ·{" "}
+                    {t(
+                      entry.status === "paused" ? "lastSide" : "dbfCurrentSide",
+                    )}
+                    : {side ? t(side) : t("dbfSideUnavailable")}
+                  </span>
+                  <span className="journal-timer" aria-live="off">
+                    {t("duration")}: {formatElapsed(elapsed(entry))}
+                  </span>
+                </div>
+                <div className="journal-dbf-timer-actions">
+                  {entry.status === "running" && side && (
+                    <button
+                      className="portal-secondary"
+                      disabled={busy}
+                      type="button"
+                      aria-label={t("dbfActionFor", {
+                        action: switchLabel,
+                        child: childName,
+                      })}
+                      onClick={() => void timerAction(entry, "switch")}
+                    >
+                      {switchLabel}
+                    </button>
+                  )}
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    type="button"
+                    aria-label={t("dbfActionFor", {
+                      action: t(
+                        entry.status === "paused"
+                          ? "resumeTimer"
+                          : "pauseTimer",
+                      ),
+                      child: childName,
+                    })}
+                    onClick={() =>
+                      void timerAction(
+                        entry,
+                        entry.status === "paused" ? "resume" : "pause",
+                      )
+                    }
+                  >
+                    {t(
+                      entry.status === "paused" ? "resumeTimer" : "pauseTimer",
+                    )}
+                  </button>
+                  <button
+                    className="portal-secondary"
+                    disabled={busy}
+                    type="button"
+                    aria-label={t("dbfActionFor", {
+                      action: t("dbfFinish"),
+                      child: childName,
+                    })}
+                    onClick={() => void stop(entry)}
+                  >
+                    {t("dbfFinish")}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
       <div className="journal-status-grid" hidden={activeTab !== "record"}>
@@ -1386,36 +1666,120 @@ export function Journal({
           onSubmit={(event) => void save(event)}
         >
           <h3>{labels[kind]}</h3>
-          <label>
-            {t("time")}
-            <input
-              name="time"
-              type="datetime-local"
-              value={timeValue}
-              onChange={(event) => setTimeValue(event.target.value)}
-              required
-            />
-          </label>
-          {!editingEntry && (
-            <div className="journal-time-chips">
-              {[5, 15, 30].map((minutes) => (
-                <button
-                  className="portal-inline-button"
-                  key={minutes}
-                  type="button"
-                  onClick={() =>
-                    setTimeValue(
-                      localDateTimeInput(
-                        new Date(Date.now() - minutes * 60000),
-                      ),
-                    )
-                  }
-                >
-                  -{minutes}m
-                </button>
-              ))}
-            </div>
+          {kind === "breastfeed" && !editingEntry && (
+            <fieldset className="journal-sleep-choice">
+              <legend>{t("dbfStatusQuestion")}</legend>
+              <div>
+                {(["manual", "timer"] as const).map((mode) => (
+                  <label key={mode}>
+                    <input
+                      type="radio"
+                      name="breastfeedMode"
+                      checked={breastfeedMode === mode}
+                      onChange={() => {
+                        setClock(Date.now());
+                        setBreastfeedMode(mode);
+                        setBreastfeedDurationError(false);
+                      }}
+                    />
+                    <span>
+                      {t(mode === "manual" ? "dbfFinished" : "dbfOngoing")}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           )}
+          {kind === "sleep" && !editingEntry && (
+            <fieldset className="journal-sleep-choice">
+              <legend>{t("sleepStatusQuestion")}</legend>
+              <div>
+                {(["running", "completed"] as const).map((mode) => (
+                  <label key={mode}>
+                    <input
+                      type="radio"
+                      name="sleepMode"
+                      checked={sleepMode === mode}
+                      onChange={() => {
+                        setSleepMode(mode);
+                        setSleepEndError(false);
+                      }}
+                    />
+                    <span>
+                      {t(mode === "running" ? "sleepOngoing" : "sleepFinished")}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
+          {!editingEntry &&
+          ((kind === "sleep" && sleepMode === "running") ||
+            (kind === "breastfeed" && breastfeedMode === "timer")) ? (
+            <>
+              <input name="time" type="hidden" value={timeValue} />
+              <p className="journal-sleep-hint">
+                {t(
+                  kind === "sleep"
+                    ? "sleepServerStartHint"
+                    : "dbfServerStartHint",
+                )}
+              </p>
+            </>
+          ) : (
+            <label>
+              {t(
+                kind === "sleep"
+                  ? "sleepStartTime"
+                  : kind === "breastfeed"
+                    ? "dbfStartTime"
+                    : "time",
+              )}
+              <input
+                name="time"
+                type="datetime-local"
+                value={timeValue}
+                onChange={(event) => {
+                  setTimeValue(event.target.value);
+                  setSleepEndError(false);
+                }}
+                required
+              />
+            </label>
+          )}
+          {!editingEntry &&
+            (kind !== "sleep" || sleepMode === "completed") &&
+            (kind !== "breastfeed" || breastfeedMode === "manual") && (
+              <div className="journal-time-chips">
+                {[5, 15, 30].map((minutes) => (
+                  <button
+                    className={
+                      kind === "sleep" ||
+                      kind === "breastfeed" ||
+                      kind === "pumping"
+                        ? "journal-sleep-shortcut"
+                        : "portal-inline-button"
+                    }
+                    key={minutes}
+                    type="button"
+                    onClick={() => {
+                      setTimeValue(
+                        localDateTimeInput(
+                          new Date(Date.now() - minutes * 60000),
+                        ),
+                      );
+                      setSleepEndError(false);
+                    }}
+                  >
+                    {kind === "sleep" ||
+                    kind === "breastfeed" ||
+                    kind === "pumping"
+                      ? t("sleepMinutesAgo", { count: minutes })
+                      : `-${minutes}m`}
+                  </button>
+                ))}
+              </div>
+            )}
           {editingEntry?.amountMl !== null &&
             editingEntry &&
             kind !== "bottle" &&
@@ -1502,59 +1866,111 @@ export function Journal({
           {kind === "breastfeed" && (
             <>
               {Array.isArray(editingEntry?.details.segments) ? (
-                <p className="portal-muted">{t("recordedSides")}</p>
+                <>
+                  <p className="portal-muted">{t("recordedSides")}</p>
+                  <p className="journal-sleep-duration">
+                    {breastfeedSummary(editingEntry)}
+                  </p>
+                </>
               ) : (
                 <>
-                  <label>
-                    {t("mode")}
-                    <select
-                      name="mode"
-                      value={breastfeedMode}
-                      disabled={Boolean(editingEntry)}
-                      onChange={(event) =>
-                        setBreastfeedMode(
-                          event.target.value === "timer" ? "timer" : "manual",
-                        )
-                      }
-                    >
-                      <option value="manual">{t("manual")}</option>
-                      <option value="timer">{t("timer")}</option>
-                    </select>
-                  </label>
                   {breastfeedMode === "manual" ? (
                     <>
                       <div className="portal-form-row">
-                        <label>
-                          {t("leftMinutes")}
-                          <input
-                            name="leftMinutes"
-                            type="number"
-                            min="0"
-                            max="120"
-                            step="1"
-                            value={leftMinutes}
-                            onChange={(event) =>
-                              setLeftMinutes(event.target.value)
-                            }
-                            required
-                          />
-                        </label>
-                        <label>
-                          {t("rightMinutes")}
-                          <input
-                            name="rightMinutes"
-                            type="number"
-                            min="0"
-                            max="120"
-                            step="1"
-                            value={rightMinutes}
-                            onChange={(event) =>
-                              setRightMinutes(event.target.value)
-                            }
-                            required
-                          />
-                        </label>
+                        {(["left", "right"] as const).map((side) => {
+                          const value =
+                            side === "left" ? leftMinutes : rightMinutes;
+                          const setValue =
+                            side === "left" ? setLeftMinutes : setRightMinutes;
+                          return (
+                            <div key={side}>
+                              <label>
+                                {t(
+                                  side === "left"
+                                    ? "leftMinutes"
+                                    : "rightMinutes",
+                                )}
+                                <input
+                                  ref={
+                                    side === "left"
+                                      ? breastfeedDurationRef
+                                      : undefined
+                                  }
+                                  name={`${side}Minutes`}
+                                  type="number"
+                                  min="0"
+                                  max="120"
+                                  step="1"
+                                  value={value}
+                                  onChange={(event) => {
+                                    setValue(event.target.value);
+                                    setBreastfeedDurationError(false);
+                                  }}
+                                  aria-invalid={breastfeedDurationError}
+                                  aria-describedby={
+                                    breastfeedDurationError
+                                      ? "dbf-duration-error"
+                                      : undefined
+                                  }
+                                  required
+                                />
+                              </label>
+                              <div className="journal-dbf-increments">
+                                {[5, 10].map((minutes) => {
+                                  const next = incrementBreastfeedMinutes(
+                                    value,
+                                    minutes,
+                                  );
+                                  return (
+                                    <button
+                                      key={minutes}
+                                      type="button"
+                                      className="journal-sleep-shortcut"
+                                      disabled={next === null}
+                                      aria-label={t("dbfAddMinutesForSide", {
+                                        count: minutes,
+                                        side: t(side),
+                                      })}
+                                      onClick={() => {
+                                        if (next !== null) setValue(next);
+                                        setBreastfeedDurationError(false);
+                                      }}
+                                    >
+                                      {t("dbfAddMinutes", { count: minutes })}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
+                      {breastfeedDurationError ? (
+                        <p
+                          id="dbf-duration-error"
+                          className="journal-sleep-error"
+                          role="alert"
+                        >
+                          {t("invalidDuration")}
+                        </p>
+                      ) : (
+                        <p className="journal-sleep-duration">
+                          {t("dbfTotalMinutes", {
+                            count:
+                              Number(leftMinutes || 0) +
+                              Number(rightMinutes || 0),
+                          })}
+                        </p>
+                      )}
+                      {breastfeedManualDuration(leftMinutes, rightMinutes) !==
+                        null &&
+                        new Date(timeValue).valueOf() +
+                          (Number(leftMinutes) + Number(rightMinutes)) * 60000 >
+                          clock && (
+                          <p className="journal-sleep-hint" role="status">
+                            {t("dbfFutureEndHint")}
+                          </p>
+                        )}
                       {Number(leftMinutes) > 0 && Number(rightMinutes) > 0 && (
                         <label>
                           {t("lastSide")}
@@ -1574,13 +1990,34 @@ export function Journal({
                       )}
                     </>
                   ) : (
-                    <label>
-                      {t("startSide")}
-                      <select name="lastSide" defaultValue={nextSide}>
-                        <option value="left">{t("left")}</option>
-                        <option value="right">{t("right")}</option>
-                      </select>
-                    </label>
+                    <fieldset
+                      className="journal-sleep-choice"
+                      key={selectedChildren.join(":")}
+                    >
+                      <legend>{t("startSide")}</legend>
+                      <div>
+                        {(["left", "right"] as const).map((side) => (
+                          <label key={side}>
+                            <input
+                              type="radio"
+                              name="lastSide"
+                              value={side}
+                              defaultChecked={
+                                selectedChildren.length === 1 &&
+                                side === nextSide
+                              }
+                              required
+                            />
+                            <span>{t(side)}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="journal-sleep-hint">
+                        {selectedChildren.length === 1
+                          ? t("dbfSuggestedSide", { side: t(nextSide) })
+                          : t("dbfSharedSideHint")}
+                      </p>
+                    </fieldset>
                   )}
                 </>
               )}
@@ -1669,88 +2106,134 @@ export function Journal({
           )}
           {kind === "sleep" && (
             <>
-              <label>
-                {t("sleepCategory")}
-                <select
-                  name="category"
-                  defaultValue={String(
-                    editingEntry?.details.category ?? sleepCategoryDefault,
+              <fieldset className="journal-sleep-choice">
+                <legend>{t("sleepCategory")}</legend>
+                <div>
+                  {(["nap", "night"] as const).map((category) => (
+                    <label key={category}>
+                      <input
+                        type="radio"
+                        name="category"
+                        value={category}
+                        defaultChecked={
+                          (editingEntry?.details.category ??
+                            sleepCategoryDefault) === category
+                        }
+                      />
+                      <span>{t(category)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+              {sleepMode === "completed" && (
+                <>
+                  <label>
+                    {t("sleepEndTime")}
+                    <input
+                      ref={sleepEndRef}
+                      name="endTime"
+                      type="datetime-local"
+                      value={sleepEndTime}
+                      onChange={(event) => {
+                        setSleepEndTime(event.target.value);
+                        setSleepEndError(false);
+                      }}
+                      aria-invalid={sleepEndError}
+                      aria-describedby={
+                        sleepEndError ? "sleep-end-error" : undefined
+                      }
+                      required
+                    />
+                  </label>
+                  {sleepEndError && (
+                    <p
+                      id="sleep-end-error"
+                      className="journal-sleep-error"
+                      role="alert"
+                    >
+                      {t("sleepEndAfterStart")}
+                    </p>
                   )}
-                >
-                  <option value="nap">{t("nap")}</option>
-                  <option value="night">{t("night")}</option>
-                </select>
-              </label>
-              <label>
-                {t("endTimeOptional")}
-                <input
-                  name="endTime"
-                  type="datetime-local"
-                  defaultValue={
-                    editingEntry?.endedAt
-                      ? new Date(
-                          new Date(editingEntry.endedAt).valueOf() -
-                            new Date().getTimezoneOffset() * 60000,
-                        )
-                          .toISOString()
-                          .slice(0, 16)
-                      : ""
-                  }
-                />
-              </label>
-              <label>
-                {t("location")}
-                <select
-                  name="location"
-                  defaultValue={String(editingEntry?.details.location ?? "")}
-                >
-                  <option value="">—</option>
-                  {[
-                    "crib",
-                    "cosleep",
-                    "contact",
-                    "stroller",
-                    "car",
-                    "swing",
-                    "other",
-                  ].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("fallAsleepMethod")}
-                <select
-                  name="fallAsleepMethod"
-                  defaultValue={String(
-                    editingEntry?.details.fallAsleepMethod ?? "",
+                  {sleepDurationMs !== null && (
+                    <p className="journal-sleep-duration">
+                      {t(
+                        editingEntry?.details.pauses
+                          ? "sleepDurationWithPauses"
+                          : "duration",
+                      )}
+                      :{" "}
+                      <strong>
+                        {formatElapsed(Math.floor(sleepDurationMs / 1000))}
+                      </strong>
+                    </p>
                   )}
-                >
-                  <option value="">—</option>
-                  {[
-                    "self",
-                    "nursing",
-                    "bottle",
-                    "rocking",
-                    "pacifier",
-                    "other",
-                  ].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t("quality")}
-                <select
-                  name="quality"
-                  defaultValue={String(editingEntry?.details.quality ?? "")}
-                >
-                  <option value="">—</option>
-                  {["nyenyak", "gelisah", "sering_bangun"].map((v) => (
-                    <option key={v}>{v}</option>
-                  ))}
-                </select>
-              </label>
+                </>
+              )}
+              <details
+                className="journal-sleep-details"
+                open={sleepDetailsOpen}
+                onToggle={(event) =>
+                  setSleepDetailsOpen(event.currentTarget.open)
+                }
+              >
+                <summary>{t("sleepExtraDetails")}</summary>
+                <div>
+                  <label>
+                    {t("location")}
+                    <select
+                      name="location"
+                      defaultValue={String(
+                        editingEntry?.details.location ?? "",
+                      )}
+                    >
+                      <option value="">—</option>
+                      {sleepLocations.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t("fallAsleepMethod")}
+                    <select
+                      name="fallAsleepMethod"
+                      defaultValue={String(
+                        editingEntry?.details.fallAsleepMethod ?? "",
+                      )}
+                    >
+                      <option value="">—</option>
+                      {sleepMethods.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t("quality")}
+                    <select
+                      name="quality"
+                      defaultValue={String(editingEntry?.details.quality ?? "")}
+                    >
+                      <option value="">—</option>
+                      {sleepQualities.map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {t(label)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    {t("note")}
+                    <textarea
+                      name="note"
+                      maxLength={500}
+                      defaultValue={editingEntry?.note ?? ""}
+                    />
+                  </label>
+                </div>
+              </details>
             </>
           )}
           {kind === "mpasi" && (
@@ -1916,58 +2399,44 @@ export function Journal({
           )}
           {kind === "pumping" && (
             <>
-              <label>
-                {t("sideMode")}
-                <select
-                  name="sideMode"
-                  value={
-                    editingEntry
-                      ? String(editingEntry.details.sideMode ?? pumpingMode)
-                      : pumpingMode
-                  }
-                  onChange={(event) =>
-                    setPumpingMode(
-                      event.target.value as "combined" | "separate",
-                    )
-                  }
-                >
-                  <option value="combined">{t("combined")}</option>
-                  <option value="separate">{t("separate")}</option>
-                </select>
-              </label>
+              <fieldset className="journal-sleep-choice">
+                <legend>{t("sideMode")}</legend>
+                <div>
+                  {(["combined", "separate"] as const).map((mode) => (
+                    <label key={mode}>
+                      <input
+                        type="radio"
+                        name="sideMode"
+                        value={mode}
+                        checked={pumpingMode === mode}
+                        onChange={() => setPumpingMode(mode)}
+                      />
+                      <span>{t(mode)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
               {pumpingMode === "combined" ? (
-                <label>
-                  {t("amountMl")}
-                  <input
-                    name="amountMl"
-                    type="number"
-                    min="0"
-                    max="2000"
-                    defaultValue={editingEntry?.amountMl ?? 0}
-                  />
-                </label>
+                <PumpingAmount
+                  name="amountMl"
+                  label={t("amountMl")}
+                  maximum={2000}
+                  initialValue={editingEntry?.amountMl ?? 0}
+                />
               ) : (
                 <div className="portal-form-row">
-                  <label>
-                    {t("leftMl")}
-                    <input
-                      name="leftMl"
-                      type="number"
-                      min="0"
-                      max="1000"
-                      defaultValue={Number(editingEntry?.details.leftMl ?? 0)}
-                    />
-                  </label>
-                  <label>
-                    {t("rightMl")}
-                    <input
-                      name="rightMl"
-                      type="number"
-                      min="0"
-                      max="1000"
-                      defaultValue={Number(editingEntry?.details.rightMl ?? 0)}
-                    />
-                  </label>
+                  <PumpingAmount
+                    name="leftMl"
+                    label={t("leftMl")}
+                    maximum={1000}
+                    initialValue={Number(editingEntry?.details.leftMl ?? 0)}
+                  />
+                  <PumpingAmount
+                    name="rightMl"
+                    label={t("rightMl")}
+                    maximum={1000}
+                    initialValue={Number(editingEntry?.details.rightMl ?? 0)}
+                  />
                 </div>
               )}
               {!editingEntry && (
@@ -1976,22 +2445,6 @@ export function Journal({
                   <input name="endTime" type="datetime-local" />
                 </label>
               )}
-              <label>
-                {t("pumpedBy")}
-                <select
-                  name="pumpedBy"
-                  defaultValue={String(editingEntry?.details.pumpedBy ?? "")}
-                >
-                  <option value="">—</option>
-                  {members
-                    .filter((member) => member.role === "mom")
-                    .map((member) => (
-                      <option key={member.userId} value={member.userId}>
-                        {member.displayName}
-                      </option>
-                    ))}
-                </select>
-              </label>
             </>
           )}
           {kind === "medicine" && (
@@ -2081,27 +2534,45 @@ export function Journal({
               </label>
             </>
           )}
-          {noteOpen ? (
-            <label>
-              {t("note")}
-              <textarea
-                name="note"
-                maxLength={500}
-                defaultValue={editingEntry?.note ?? ""}
-              />
-            </label>
-          ) : (
-            <button
-              className="portal-inline-button"
-              type="button"
-              onClick={() => setNoteOpen(true)}
-            >
-              + {t("note")}
-            </button>
-          )}
+          {kind !== "sleep" &&
+            (noteOpen ? (
+              <label>
+                {t("note")}
+                <textarea
+                  className={
+                    kind === "breastfeed" || kind === "pumping"
+                      ? "journal-dbf-note-input"
+                      : undefined
+                  }
+                  name="note"
+                  maxLength={500}
+                  defaultValue={editingEntry?.note ?? ""}
+                />
+              </label>
+            ) : (
+              <button
+                className={
+                  kind === "breastfeed" || kind === "pumping"
+                    ? "portal-secondary journal-dbf-note"
+                    : "portal-inline-button"
+                }
+                type="button"
+                onClick={() => setNoteOpen(true)}
+              >
+                + {t("note")}
+              </button>
+            ))}
           <div className="portal-actions">
             <button className="portal-primary" disabled={busy} type="submit">
-              {t("save")}
+              {t(
+                kind === "sleep" && !editingEntry && sleepMode === "running"
+                  ? "sleepStartTimer"
+                  : kind === "breastfeed" &&
+                      !editingEntry &&
+                      breastfeedMode === "timer"
+                    ? "dbfStartTimer"
+                    : "save",
+              )}
             </button>
             <button
               className="portal-secondary"

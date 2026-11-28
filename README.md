@@ -7,7 +7,7 @@ FamilyCradle is a mobile-first shared baby journal PWA for parents and caregiver
 - Node.js 24 LTS
 - npm 11
 - A Turso development database and token for the API
-- A Resend API key and verified sender address for account emails
+- A Gmail SMTP account with a Google App Password for account emails
 
 ## Local setup
 
@@ -34,13 +34,17 @@ Production must set `TRUSTED_PROXIES` to the actual ingress proxy IPs/CIDRs so B
 | `npm run db:generate`  | Generate a Drizzle migration                |
 | `npm run db:migrate`   | Apply migrations to the configured Turso DB |
 
-The API provides Better Auth email/password endpoints at `/api/auth/*`, using email verification, password reset, database-backed rate limiting, and Resend. Other `/api` requests require a valid session and return structured errors.
+The API provides Better Auth email/password endpoints at `/api/auth/*`, using email verification, password reset, database-backed rate limiting, and Gmail SMTP. Sign-in users can request a password reset; the emailed link opens a form to set a new password. Other `/api` requests require a valid session and return structured errors.
 
-After creating an account or attempting to sign in with an unverified email, users can request another verification email. Resend requests are limited to three per email per hour; acceptance of a request does not guarantee delivery.
+After creating an account or attempting to sign in with an unverified email, users can request another verification email. Verification and password-reset requests are limited to three per email per hour. Email delivery requires `SMTP_USER` and `SMTP_APP_PASSWORD`; use a Google App Password, not your Google account password. Set these as secrets in Cloud Run yourself.
 
 The Phase 1.2 onboarding flow is available from **Open journal** in the web app. Users can create an account, verify their email, create or select a family, add a child profile, and create single-use caregiver or parent invites. Family and child management APIs enforce membership, parent permissions, optimistic child-profile versions, and soft deletion. Invite codes are shown once and expire after 72 hours.
 
-The Phase 1.3 logging core is available within the selected family: seven entry types, a day-filtered timeline with a daily summary, server-timed sleep/DBF/pumping sessions with pause/resume and DBF side switching, multi-child logging with deterministic sibling IDs, MPASI food catalog with allergen and reaction tracking, medicine history, audit history endpoints, and soft-delete recovery. Family delta sync is now available through `GET /api/families/:fid/sync?since=<rev>`; the journal polls while open and refreshes when family changes arrive. Apply the committed migrations with `npm run db:migrate` before using the log endpoints. Dexie offline replay and sync conflict handling remain in Phase 1.5.
+The Phase 1.3 logging core is available within the selected family: seven entry types, a day-filtered timeline with a daily summary, server-timed sleep/DBF/pumping sessions with pause/resume and DBF side switching, multi-child logging with deterministic sibling IDs, MPASI food catalog with allergen and reaction tracking, medicine history, audit history endpoints, and soft-delete recovery. Family delta sync is available through `GET /api/families/:fid/sync?since=<rev>`; the journal polls while open and refreshes when family changes arrive. Logging requires an active connection: failed writes are reported and are not queued for later replay. The installable PWA may cache its static app shell, but family data and edits are online-only. Apply the committed migrations with `npm run db:migrate` before using the log endpoints.
+
+For sleep, choose **Still sleeping** to start a server-timed session, or **Already awake** to record start and wake-up times. Additional sleep details are optional. A timer's start time can be corrected after it is stopped.
+
+For DBF, record the minutes on each side after a feed, or choose **Feeding now** to start a server-timed session. Active sessions show each child's current side and offer switch, pause, resume, and finish controls.
 
 The Phase 2 AI consent API is a server-side foundation only: parents can update family consent through `PUT /api/families/:fid/ai-consent` with `{ "enabled": true | false }`. Changes are audited and included in family sync. AI features and the consent UI are not yet implemented; no AI calls are made.
 
