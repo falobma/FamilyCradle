@@ -46,15 +46,6 @@ const types = [
   "pumping",
   "medicine",
 ] as const;
-const labels: Record<string, string> = {
-  bottle: "Susu",
-  breastfeed: "DBF",
-  diaper: "Popok",
-  sleep: "Tidur",
-  mpasi: "MPASI",
-  pumping: "Pumping",
-  medicine: "Obat",
-};
 const sleepLocations = [
   ["crib", "sleepLocationCrib"],
   ["cosleep", "sleepLocationCosleep"],
@@ -261,6 +252,15 @@ export function Journal({
   }>;
 }) {
   const { t } = useTranslation();
+  const labels: Record<string, string> = {
+    bottle: t("recordBottle"),
+    breastfeed: t("recordBreastfeed"),
+    diaper: t("recordDiaper"),
+    sleep: t("sleep"),
+    mpasi: t("recordMpasi"),
+    pumping: t("pumping"),
+    medicine: t("recordMedicine"),
+  };
   const [activeTab, setActiveTab] = useState<"record" | "history" | "insights">(
     "record",
   );
@@ -1414,7 +1414,7 @@ export function Journal({
       <div className="journal-actions" hidden={activeTab !== "record"}>
         {types.map((type) => (
           <button
-            className="portal-secondary"
+            className={`portal-secondary journal-action-${type}`}
             key={type}
             type="button"
             onClick={() => openSheet(type, null)}

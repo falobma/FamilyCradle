@@ -194,7 +194,10 @@ function TrendChart({
               data={chartData}
               margin={{ top: 10, right: 16, bottom: 10, left: 0 }}
             >
-              <CartesianGrid strokeDasharray="3 3" />
+              <CartesianGrid
+                stroke="var(--color-cocoa-200)"
+                strokeDasharray="3 3"
+              />
               <XAxis
                 dataKey="time"
                 type="number"
@@ -206,6 +209,8 @@ function TrendChart({
                 tickFormatter={(value: number) => date.format(value)}
                 minTickGap={45}
                 fontSize={11}
+                stroke="var(--color-cocoa-400)"
+                tick={{ fill: "var(--color-cocoa-700)" }}
               />
               <YAxis
                 domain={[0, "auto"]}
@@ -213,9 +218,18 @@ function TrendChart({
                 width={68}
                 fontSize={11}
                 tickFormatter={(value: number) => number.format(value)}
+                stroke="var(--color-cocoa-400)"
+                tick={{ fill: "var(--color-cocoa-700)" }}
               />
               <Tooltip
-                contentStyle={{ whiteSpace: "normal", maxWidth: 200 }}
+                contentStyle={{
+                  whiteSpace: "normal",
+                  maxWidth: 200,
+                  backgroundColor: "var(--surface-raised, #fffdfa)",
+                  borderColor: "var(--border-subtle, #e8d6c3)",
+                  borderRadius: 12,
+                  color: "var(--color-cocoa-900)",
+                }}
                 wrapperStyle={{ pointerEvents: "none" }}
                 isAnimationActive={false}
                 position={{ x: 0, y: 0 }}
@@ -275,9 +289,9 @@ function TrendChart({
                   y1={target.min}
                   y2={target.max}
                   ifOverflow="extendDomain"
-                  fill="#8a9e77"
+                  fill="var(--growth-reference-fill)"
                   fillOpacity={0.3}
-                  stroke="#536f43"
+                  stroke="var(--growth-reference-stroke)"
                 />
               ))}
               {reference.flatMap((row) =>
@@ -287,8 +301,8 @@ function TrendChart({
                     x={row.time}
                     y={row.values[index]!}
                     r={3}
-                    fill="#fffdfa"
-                    stroke="#315a78"
+                    fill="var(--growth-reference-mark)"
+                    stroke="var(--growth-reference-stroke)"
                     strokeWidth={2}
                     ifOverflow="extendDomain"
                   />
@@ -298,10 +312,10 @@ function TrendChart({
                 type="linear"
                 dataKey="p50"
                 name={t("growthReferenceP50")}
-                stroke="#386b45"
+                stroke="var(--growth-reference-line)"
                 strokeWidth={2}
                 strokeDasharray="5 3"
-                dot={{ r: 4, fill: "#386b45" }}
+                dot={{ r: 4, fill: "var(--growth-reference-line)" }}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -309,7 +323,7 @@ function TrendChart({
                 type="linear"
                 dataKey="value"
                 name={title}
-                stroke="#795136"
+                stroke="var(--growth-value-line)"
                 strokeWidth={2}
                 dot={{ r: 4 }}
                 connectNulls

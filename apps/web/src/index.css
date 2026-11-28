@@ -9,14 +9,81 @@
 :root {
   font-family: var(--font-sans);
   color: var(--color-cocoa-900);
+  --growth-reference-fill: #8a9e77;
+  --growth-reference-stroke: #536f43;
+  --growth-reference-mark: #fffdfa;
+  --growth-reference-line: #386b45;
+  --growth-value-line: #795136;
   background:
-    radial-gradient(circle at 15% 8%, rgb(255 217 180 / 28%), transparent 22rem),
-    radial-gradient(circle at 88% 18%, rgb(201 190 235 / 20%), transparent 24rem),
+    radial-gradient(
+      circle at 15% 8%,
+      rgb(255 217 180 / 28%),
+      transparent 22rem
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      rgb(201 190 235 / 20%),
+      transparent 24rem
+    ),
     var(--color-cocoa-50);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: var(--color-cocoa-900);
+  background:
+    radial-gradient(
+      circle at 15% 8%,
+      rgb(214 166 109 / 10%),
+      transparent 22rem
+    ),
+    radial-gradient(
+      circle at 88% 18%,
+      rgb(151 134 194 / 8%),
+      transparent 24rem
+    ),
+    var(--color-cocoa-50);
+  --color-cocoa-50: #121722;
+  --color-cocoa-100: #1c2331;
+  --color-cocoa-200: #354052;
+  --color-cocoa-300: #4d5a70;
+  --color-cocoa-400: #8390a3;
+  --color-cocoa-500: #d0a985;
+  --color-cocoa-600: #c99f78;
+  --color-cocoa-700: #c5cad4;
+  --color-cocoa-800: #e1ded8;
+  --color-cocoa-900: #f6f0e7;
+  --color-peach-100: #3e3030;
+  --color-peach-300: #9b704f;
+  --color-peach-500: #d7a46d;
+  --color-lilac-100: #33324a;
+  --color-lilac-300: #72678e;
+  --color-lilac-500: #b3a5db;
+  --color-mint-100: #2d403c;
+  --color-mint-300: #54776b;
+  --color-mint-500: #90c2ad;
+  --color-coral-100: #463137;
+  --color-coral-300: #91585e;
+  --color-coral-500: #df9692;
+  --color-sky-100: #293a46;
+  --color-sky-300: #4a6875;
+  --color-sky-500: #456872;
+  --color-night-bg: #121722;
+  --color-night-surface: #1c2331;
+  --color-night-text: #f6f0e7;
+  --surface-card: #1d2534;
+  --surface-raised: #242d3d;
+  --surface-inset: #151b28;
+  --border-subtle: rgb(189 199 219 / 14%);
+  --growth-reference-fill: #9bb98e;
+  --growth-reference-stroke: #c1daa8;
+  --growth-reference-mark: #242d3d;
+  --growth-reference-line: #b2d0aa;
+  --growth-value-line: #e0b27f;
 }
 
 * {

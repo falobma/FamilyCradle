@@ -9,9 +9,20 @@ const languages = [
   { code: "mixed", label: "MIX" },
 ] as const;
 
+const themes = [
+  { value: "light", labelKey: "themeLight" },
+  { value: "dark", labelKey: "themeDark" },
+  { value: "system", labelKey: "themeSystem" },
+] as const;
+type Theme = (typeof themes)[number]["value"];
+
 function App() {
   const { i18n, t } = useTranslation();
   const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => {
+    const savedTheme = localStorage.getItem("familycradle.theme");
+    return themes.find(({ value }) => value === savedTheme)?.value ?? "system";
+  });
   const [view, setView] = useState<
     "landing" | "account" | "today" | "settings" | "reset-password"
   >(() =>
@@ -34,6 +45,20 @@ function App() {
     window.addEventListener("pwa-update-available", showUpdate);
     return () => window.removeEventListener("pwa-update-available", showUpdate);
   }, []);
+
+  useEffect(() => {
+    const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      document.documentElement.dataset.theme =
+        theme === "system" ? (systemTheme.matches ? "dark" : "light") : theme;
+    };
+
+    applyTheme();
+    if (theme !== "system") return;
+
+    systemTheme.addEventListener("change", applyTheme);
+    return () => systemTheme.removeEventListener("change", applyTheme);
+  }, [theme]);
 
   useEffect(() => {
     void fetch("/api/auth/get-session", { credentials: "same-origin" })
@@ -64,6 +89,11 @@ function App() {
   function changeLanguage(code: "id" | "en" | "mixed") {
     localStorage.setItem("familycradle.language", code);
     void i18n.changeLanguage(code);
+  }
+
+  function changeTheme(nextTheme: Theme) {
+    localStorage.setItem("familycradle.theme", nextTheme);
+    setTheme(nextTheme);
   }
 
   const handleSessionChange = useCallback((isSignedIn: boolean) => {
@@ -119,7 +149,7 @@ function App() {
           )}
           <details className="topbar-menu">
             <summary aria-label={t("language")}>
-              <span>MIX</span>
+              <span>{t("languageName")}</span>
               <span aria-hidden="true">⌄</span>
             </summary>
             <div className="topbar-menu-panel">
@@ -139,6 +169,26 @@ function App() {
                     {label}
                   </button>
                 ))}
+              </div>
+              <div className="topbar-menu-section">
+                <span className="topbar-menu-section-label">{t("theme")}</span>
+                <div
+                  className="theme-picker"
+                  role="group"
+                  aria-label={t("theme")}
+                >
+                  {themes.map(({ value, labelKey }) => (
+                    <button
+                      aria-pressed={theme === value}
+                      className="theme-option"
+                      key={value}
+                      onClick={() => changeTheme(value)}
+                      type="button"
+                    >
+                      {t(labelKey)}
+                    </button>
+                  ))}
+                </div>
               </div>
               {signedIn && (
                 <button
